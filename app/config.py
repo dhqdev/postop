@@ -32,6 +32,20 @@ class Config:
     session_days: int = field(default_factory=lambda: int(os.getenv("SESSION_DAYS", "7")))
     worker_poll_seconds: float = field(default_factory=lambda: float(os.getenv("WORKER_POLL_SECONDS", "3")))
 
+    def insecure_defaults(self) -> list[str]:
+        """Avisos de configuração insegura (aparecem no log ao subir)."""
+        out = []
+        weak = {"", "dev-secret-change-me", "gere-com-openssl-rand-hex-32"}
+        if self.secret_key.startswith("TROQUE"):
+            weak.add(self.secret_key)
+        if self.secret_key in weak or len(self.secret_key) < 16:
+            out.append("SECRET_KEY padrão/curta. Gere uma com: openssl rand -hex 32")
+        if self.admin_password in {"admin", "troque-esta-senha", "TROQUE_SENHA_DO_PAINEL", ""}:
+            out.append("ADMIN_PASSWORD padrão. Troque na stack.")
+        if self.public_url.startswith("http://") and "localhost" not in self.public_url:
+            out.append("PUBLIC_URL sem https: o TikTok exige https no Redirect URI.")
+        return out
+
     @property
     def media_dir(self) -> Path:
         return self.data_dir / "media"

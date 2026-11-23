@@ -33,6 +33,8 @@ async def lifespan(_app: FastAPI):
     for d in (config.media_dir, config.work_dir, config.models_dir, config.data_dir / "uploads"):
         d.mkdir(parents=True, exist_ok=True)
     init_db()
+    for warning in config.insecure_defaults():
+        log.warning("ATENÇÃO: %s", warning)
     yield
 
 
@@ -71,7 +73,7 @@ class LoginIn(BaseModel):
 
 @app.post("/api/login")
 def login(data: LoginIn, request: Request) -> JSONResponse:
-    ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "?").split(",")[0]
+    ip = auth.client_ip(request)
     if auth.too_many_failures(ip):
         raise HTTPException(429, "Muitas tentativas. Aguarde 10 minutos.")
     if not auth.check_credentials(data.username, data.password):
@@ -286,6 +288,10 @@ def retry_job(job_id: int, db: Session = Depends(get_db), _: str = User) -> dict
     if j is None:
         raise HTTPException(404, "Job não encontrado")
     params = {k: v for k, v in (j.params or {}).items() if not k.startswith("_")}
+    if j.kind == "tiktok_post" and params.get("video_id"):
+        v = db.get(Video, int(params["video_id"]))
+        if v is not None:
+            v.tiktok_status, v.tiktok_error = "queued", ""
     return _enqueue(db, j.kind, j.title, params)
 
 

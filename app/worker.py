@@ -20,6 +20,8 @@ from .pipelines import Cancelled, Ctx, prompt3d, youtube_clips
 
 log = logging.getLogger("postop.worker")
 _stop = False
+POLL_ATTEMPTS = 60  # status do post TikTok: 60 x 10s = 10 min
+POLL_INTERVAL = 10.0
 
 
 def _now() -> datetime:
@@ -106,6 +108,10 @@ class JobRunner:
                 self._cancelled = j is None or j.status == "canceled"
         return self._cancelled
 
+    def cancelled_now(self) -> bool:
+        self._last_cancel_check = 0.0
+        return self.cancelled()
+
     def ctx(self) -> Ctx:
         return Ctx(
             job_id=self.job.id,
@@ -122,12 +128,12 @@ class JobRunner:
         job = self.job
         work = config.work_dir / f"job_{job.id}"
         out_dir = config.media_dir / f"job_{job.id}"
-        work.mkdir(parents=True, exist_ok=True)
-        out_dir.mkdir(parents=True, exist_ok=True)
         try:
             if job.kind == "tiktok_post":
                 result = self.run_tiktok()
             else:
+                work.mkdir(parents=True, exist_ok=True)
+                out_dir.mkdir(parents=True, exist_ok=True)
                 pipeline = {"youtube": youtube_clips.run, "prompt3d": prompt3d.run}.get(job.kind)
                 if pipeline is None:
                     raise RuntimeError(f"Tipo de job desconhecido: {job.kind}")
@@ -135,7 +141,11 @@ class JobRunner:
                 result = {"videos": self.save_videos(outputs)}
                 if (job.params or {}).get("auto_post"):
                     self.enqueue_posts(result["videos"])
-            self.update(status="done", progress=100, stage="Concluído", result=result, finished_at=_now())
+            if self.cancelled_now():
+                # cancelado no fim do processamento: guarda o resultado, mas mantém "cancelado"
+                self.update(stage="Cancelado", result=result, finished_at=_now())
+            else:
+                self.update(status="done", progress=100, stage="Concluído", result=result, finished_at=_now())
         except Cancelled:
             self.update(stage="Cancelado", finished_at=_now())
         except Exception as exc:
@@ -195,25 +205,35 @@ class JobRunner:
             path = config.media_dir / v.file_path
             title = p.get("title") or " ".join(x for x in [v.caption or v.title, v.hashtags] if x).strip()
             is_aigc = v.kind == "prompt3d"
-            v.tiktok_status, v.tiktok_error = "uploading", ""
             vid = v.id
+            # Worker reiniciou depois do envio: só acompanha o status (não posta de novo)
+            resume_id = v.tiktok_publish_id if (p.get("_retries") and v.tiktok_status == "processing") else ""
+            if not resume_id:
+                v.tiktok_status, v.tiktok_error, v.tiktok_publish_id = "uploading", "", ""
+        if not resume_id and not path.is_file():
+            self._set_video(vid, tiktok_status="error", tiktok_error="Arquivo do vídeo não existe mais")
+            raise RuntimeError(f"Arquivo do vídeo não encontrado: {path.name}")
         try:
-            self.report(20, "Enviando vídeo para o TikTok")
-            publish_id = tiktok.publish(
-                path,
-                title,
-                mode=p.get("mode", "direct"),
-                privacy=p.get("privacy", "SELF_ONLY"),
-                is_aigc=is_aigc,
-                disable_comment=bool(p.get("disable_comment")),
-                disable_duet=bool(p.get("disable_duet")),
-                disable_stitch=bool(p.get("disable_stitch")),
-            )
-            self._set_video(vid, tiktok_status="processing", tiktok_publish_id=publish_id)
+            if resume_id:
+                publish_id = resume_id
+                self.write_log(f"Retomando acompanhamento do post {publish_id}")
+            else:
+                self.report(20, "Enviando vídeo para o TikTok")
+                publish_id = tiktok.publish(
+                    path,
+                    title,
+                    mode=p.get("mode", "direct"),
+                    privacy=p.get("privacy", "SELF_ONLY"),
+                    is_aigc=is_aigc,
+                    disable_comment=bool(p.get("disable_comment")),
+                    disable_duet=bool(p.get("disable_duet")),
+                    disable_stitch=bool(p.get("disable_stitch")),
+                )
+                self._set_video(vid, tiktok_status="processing", tiktok_publish_id=publish_id)
             self.report(70, "TikTok processando o vídeo")
-            final = {}
-            for _ in range(60):
-                time.sleep(10)
+            final: dict = {}
+            for _ in range(POLL_ATTEMPTS):
+                time.sleep(POLL_INTERVAL)
                 final = tiktok.publish_status(publish_id)
                 status = final.get("status", "")
                 if status == "PUBLISH_COMPLETE":
@@ -224,7 +244,19 @@ class JobRunner:
                     break
                 if status == "FAILED":
                     raise tiktok.TikTokError(f"TikTok recusou: {final.get('fail_reason')}")
+                if self.cancelled():
+                    # o vídeo já foi enviado; só paramos de acompanhar
+                    self._set_video(vid, tiktok_error="Acompanhamento cancelado; confira no app do TikTok.")
+                    raise Cancelled()
+            else:
+                self._set_video(
+                    vid,
+                    tiktok_error="O TikTok ainda não confirmou a publicação. Confira no app do TikTok.",
+                )
+                self.write_log(f"Sem confirmação após {POLL_ATTEMPTS * POLL_INTERVAL:.0f}s: {final}")
             return {"publish_id": publish_id, "status": final}
+        except Cancelled:
+            raise
         except Exception as exc:
             self._set_video(vid, tiktok_status="error", tiktok_error=str(exc)[:2000])
             raise

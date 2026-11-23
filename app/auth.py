@@ -32,6 +32,19 @@ def register_failure(ip: str) -> None:
     _failures[ip].append(time.time())
 
 
+def client_ip(request: Request) -> str:
+    """IP real do cliente atrás do Traefik.
+
+    O Traefik ACRESCENTA o IP de quem conectou no fim do X-Forwarded-For; o começo
+    do cabeçalho pode ser inventado pelo cliente (e burlaria o limite de tentativas).
+    """
+    xff = request.headers.get("x-forwarded-for", "")
+    parts = [p.strip() for p in xff.split(",") if p.strip()]
+    if parts:
+        return parts[-1]
+    return request.client.host if request.client else "?"
+
+
 def make_token(username: str) -> str:
     return _serializer.dumps({"u": username})
 

@@ -35,6 +35,13 @@ Responda APENAS com JSON no formato:
 Escreva title, caption e hashtags no mesmo idioma da transcrição."""
 
 
+def _score(c: dict) -> float:
+    try:
+        return float(c.get("score", 0) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def is_youtube_url(url: str) -> bool:
     return bool(YOUTUBE_RE.match(url.strip()))
 
@@ -150,7 +157,7 @@ def clean_clips(
                 "title": str(c.get("title", ""))[:200],
                 "caption": str(c.get("caption", "")),
                 "hashtags": tags[:8],
-                "score": float(c.get("score", 0) or 0),
+                "score": _score(c),
                 "reason": str(c.get("reason", "")),
             }
         )
@@ -183,7 +190,8 @@ def choose_clips(ctx: Ctx, segments: list[dict], words: list[Word], total: float
             ctx.add_cost(cost)
             ctx.log(f"Cortes escolhidos por {model}")
             raw = data.get("clips", []) if isinstance(data, dict) else data
-            raw = sorted(raw, key=lambda c: float(c.get("score", 0) or 0), reverse=True)
+            raw = [c for c in (raw if isinstance(raw, list) else []) if isinstance(c, dict)]
+            raw = sorted(raw, key=_score, reverse=True)
             clips = clean_clips(raw, words, total, n, min_s, max_s)
             if clips:
                 return clips

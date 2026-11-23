@@ -252,7 +252,7 @@ async function viewVideos(query) {
       <div class="body">
         <div class="title">${esc(v.title)}</div>
         <div class="muted small">${KIND[v.kind] || ""} · ${v.duration}s ${v.score ? `· nota ${Math.round(v.score)}` : ""}</div>
-        <div class="small">${esc(v.caption).slice(0, 140)} <span class="muted">${esc(v.hashtags)}</span></div>
+        <div class="small">${esc((v.caption || "").slice(0, 140))} <span class="muted">${esc(v.hashtags)}</span></div>
         <div>${badge(v.tiktok_status)} ${v.tiktok_error ? `<div class="error small">${esc(v.tiktok_error.slice(0, 200))}</div>` : ""}</div>
         <div class="actions">
           <button class="btn small primary" onclick="postDialog(${v.id})">📤 TikTok</button>
@@ -341,9 +341,12 @@ async function viewSettings(query) {
   const s = await api("/api/settings");
   state.settings = s;
   const err = query.get("tiktok_error");
+  const fromTikTok = Boolean(err || query.get("tiktok"));
   if (err) toast("TikTok: " + err, true);
   if (query.get("tiktok") === "ok") toast("Conta do TikTok conectada! 🎉");
-  const tab = sessionStorage.getItem("cfgTab") || (err || query.get("tiktok") ? "tiktok" : "openrouter");
+  // volta do TikTok: abre a aba TikTok e limpa o ?tiktok=... da URL (não repete o aviso)
+  if (fromTikTok) { sessionStorage.setItem("cfgTab", "tiktok"); history.replaceState(null, "", "#/configuracoes"); }
+  const tab = sessionStorage.getItem("cfgTab") || "openrouter";
   const groups = { openrouter: "🤖 OpenRouter (IA)", video: "🎬 Vídeo e legendas", tiktok: "📱 TikTok" };
   $("#view").innerHTML = `<div class="page-head"><h1>🔧 Configurações</h1></div>
     <div class="tabs">${Object.entries(groups).map(([g, n]) => `<button data-tab="${g}">${n}</button>`).join("")}</div>
@@ -379,6 +382,8 @@ function renderTab(tab) {
       <h2>Conta do TikTok</h2>
       ${t.connected ? `<div class="callout ok">✅ Conectado ${t.display_name ? `como <b>${esc(t.display_name)}</b>` : ""}
           <div class="small muted">Permissões: ${esc(t.scope)}</div></div>
+          ${["video.publish", "video.upload"].filter((sc) => !(t.scope || "").split(",").includes(sc)).map((sc) =>
+            `<div class="callout" style="margin-bottom:8px">Falta a permissão <b>${sc}</b>: adicione no app do TikTok Developers e clique em Reconectar.</div>`).join("")}
           <button type="button" class="btn danger" onclick="disconnectTikTok()">Desconectar</button>
           <a class="btn" href="/api/tiktok/connect">Reconectar</a>`
         : `<p class="muted">${t.configured ? "Client Key e Secret salvos. Agora conecte a conta:" : "Preencha Client Key e Client Secret abaixo e salve. Depois conecte."}</p>

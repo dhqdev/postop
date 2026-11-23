@@ -1,28 +1,43 @@
 # =====================================================================
-# PostOp - stack para Portainer (Docker Swarm)
+# Stack do PostOp (Swarm + Traefik) em https://postop.tekvosoft.com
 #
-# Esta versão usa o Traefik que JÁ roda no servidor (rede network_public,
-# certresolver letsencryptresolver, entrypoint websecure), como o seu n8n.
-# Tudo o mais é próprio e isolado: Postgres, rede interna, volumes.
+# Tudo é próprio desta stack e não depende de nada que já roda na VPS:
+#   - postop_web     painel + API (porta 8000, publicado pelo Traefik)
+#   - postop_worker  fila de vídeos (YouTube, 3D, posts no TikTok)
+#   - postop_db      Postgres 16 só do PostOp (NÃO usa o postgres_postgres)
+#   - rede interna   postop_internal (o banco não fica exposto na network_public)
+#   - volumes        postop_data (vídeos/modelos) e postop_pgdata (banco)
+# Redis não é necessário: a fila do worker fica no próprio Postgres.
 #
-# Preencha os campos marcados com  <<< TROQUE  e faça o deploy.
-#  - SECRET_KEY: string aleatória longa. NÃO troque depois (as chaves salvas
-#    na tela de Configurações são criptografadas com ela).
-#  - POSTGRES_PASSWORD aparece 2x (no x-env e no serviço db): use a mesma.
+# Da VPS só é usado o Traefik (rede network_public, entrypoint websecure,
+# certresolver letsencryptresolver), igual ao n8n: é ele que ocupa as portas
+# 80/443 e emite o certificado, então não dá para subir um segundo Traefik.
+#
+# Antes do deploy, troque os 4 valores marcados com  <<< TROQUE :
+#   SECRET_KEY        openssl rand -hex 32   (NÃO troque depois: as chaves salvas
+#                     em Configurações são criptografadas com ela)
+#   SENHA_DO_POSTGRES openssl rand -hex 24   (só letras e números; aparece 2x,
+#                     no DATABASE_URL e no POSTGRES_PASSWORD, use a mesma)
+#   ADMIN_USER / ADMIN_PASSWORD  login do painel
+#
+# Redirect URI para colar no TikTok Developers:
+#   https://postop.tekvosoft.com/api/tiktok/callback
 # =====================================================================
 version: "3.8"
 
 x-env: &env
   TZ: America/Sao_Paulo
-  # --- Login da plataforma ---
-  ADMIN_USER: admin                                  # <<< TROQUE
-  ADMIN_PASSWORD: troque-esta-senha                  # <<< TROQUE
-  # --- Endereço público (sem barra no final) ---
-  PUBLIC_URL: https://postop.seudominio.com          # <<< TROQUE (mesmo domínio do Host() abaixo)
+  # --- Login do painel ---
+  ADMIN_USER: admin                                   # <<< TROQUE
+  ADMIN_PASSWORD: TROQUE_SENHA_DO_PAINEL              # <<< TROQUE
+  # --- Endereço público (sem barra no final; usado no Redirect URI do TikTok) ---
+  PUBLIC_URL: https://postop.tekvosoft.com
   # --- Segredos ---
-  SECRET_KEY: gere-com-openssl-rand-hex-32           # <<< TROQUE (openssl rand -hex 32)
-  DATABASE_URL: postgresql://postop:SENHA_DO_POSTGRES@postop-db:5432/postop   # <<< TROQUE SENHA_DO_POSTGRES
+  SECRET_KEY: TROQUE_PELO_RESULTADO_DE_openssl_rand_hex_32                         # <<< TROQUE
+  DATABASE_URL: postgresql://postop:SENHA_DO_POSTGRES@postop-db:5432/postop       # <<< TROQUE SENHA_DO_POSTGRES
+  # --- Outros ---
   DATA_DIR: /data
+  API_WORKERS: "2"
 
 services:
   web:
@@ -39,19 +54,21 @@ services:
       replicas: 1
       placement:
         constraints:
-          - node.role == manager
+          - node.role == manager   # mesmo nó do worker (dividem o volume de vídeos)
       restart_policy:
         condition: any
         delay: 10s
       update_config:
         order: start-first
+        failure_action: rollback
       labels:
+        # --- Configuração do Traefik ---
         - "traefik.enable=true"
         - "traefik.docker.network=network_public"
-        - "traefik.http.routers.postop.rule=Host(`postop.seudominio.com`)"   # <<< TROQUE
+        - "traefik.http.routers.postop.rule=Host(`postop.tekvosoft.com`)"
         - "traefik.http.routers.postop.entrypoints=websecure"
-        - "traefik.http.routers.postop.tls.certresolver=letsencryptresolver"
         - "traefik.http.routers.postop.service=postop-service"
+        - "traefik.http.routers.postop.tls.certresolver=letsencryptresolver"
         - "traefik.http.services.postop-service.loadbalancer.server.port=8000"
 
   worker:
@@ -63,13 +80,15 @@ services:
     networks:
       - postop_internal
     healthcheck:
-      disable: true
+      disable: true   # o worker não tem servidor HTTP
+    # tempo para terminar o passo atual ao atualizar; se passar disso o job volta para a fila
+    stop_grace_period: 2m
     deploy:
       mode: replicated
-      replicas: 1
+      replicas: 1   # um vídeo por vez (ffmpeg/Whisper usam bastante CPU)
       placement:
         constraints:
-          - node.role == manager   # mesmo nó do web (dividem o volume de vídeos)
+          - node.role == manager
       restart_policy:
         condition: any
         delay: 10s
@@ -82,7 +101,7 @@ services:
     environment:
       TZ: America/Sao_Paulo
       POSTGRES_USER: postop
-      POSTGRES_PASSWORD: SENHA_DO_POSTGRES          # <<< TROQUE (igual à do DATABASE_URL)
+      POSTGRES_PASSWORD: SENHA_DO_POSTGRES            # <<< TROQUE (igual à do DATABASE_URL)
       POSTGRES_DB: postop
     volumes:
       - postop_pgdata:/var/lib/postgresql/data
@@ -103,6 +122,7 @@ services:
           - node.role == manager
       restart_policy:
         condition: any
+        delay: 5s
 
 volumes:
   postop_data:

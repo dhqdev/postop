@@ -1,0 +1,47 @@
+# Desenvolvimento local: docker compose up --build  ->  http://localhost:8000 (admin / admin)
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postop
+      POSTGRES_PASSWORD: postop
+      POSTGRES_DB: postop
+    volumes:
+      - pg_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postop"]
+      interval: 5s
+      retries: 10
+
+  app:
+    build: .
+    command: ["api"]
+    environment: &env
+      DATABASE_URL: postgresql://postop:postop@postgres:5432/postop
+      ADMIN_USER: admin
+      ADMIN_PASSWORD: admin
+      SECRET_KEY: dev-secret-change-me
+      PUBLIC_URL: http://localhost:8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - data_dev:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: ["worker"]
+    environment: *env
+    volumes:
+      - data_dev:/data
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pg_dev:
+  data_dev:

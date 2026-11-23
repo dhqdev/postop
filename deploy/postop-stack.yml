@@ -1,0 +1,119 @@
+# =====================================================================
+# PostOp - stack para Portainer (Docker Swarm)
+#
+# Esta versão usa o Traefik que JÁ roda no servidor (rede network_public,
+# certresolver letsencryptresolver, entrypoint websecure), como o seu n8n.
+# Tudo o mais é próprio e isolado: Postgres, rede interna, volumes.
+#
+# Preencha os campos marcados com  <<< TROQUE  e faça o deploy.
+#  - SECRET_KEY: string aleatória longa. NÃO troque depois (as chaves salvas
+#    na tela de Configurações são criptografadas com ela).
+#  - POSTGRES_PASSWORD aparece 2x (no x-env e no serviço db): use a mesma.
+# =====================================================================
+version: "3.8"
+
+x-env: &env
+  TZ: America/Sao_Paulo
+  # --- Login da plataforma ---
+  ADMIN_USER: admin                                  # <<< TROQUE
+  ADMIN_PASSWORD: troque-esta-senha                  # <<< TROQUE
+  # --- Endereço público (sem barra no final) ---
+  PUBLIC_URL: https://postop.seudominio.com          # <<< TROQUE (mesmo domínio do Host() abaixo)
+  # --- Segredos ---
+  SECRET_KEY: gere-com-openssl-rand-hex-32           # <<< TROQUE (openssl rand -hex 32)
+  DATABASE_URL: postgresql://postop:SENHA_DO_POSTGRES@postop-db:5432/postop   # <<< TROQUE SENHA_DO_POSTGRES
+  DATA_DIR: /data
+
+services:
+  web:
+    image: ghcr.io/dhqdev/postop:latest
+    command: ["api"]
+    environment: *env
+    volumes:
+      - postop_data:/data
+    networks:
+      - postop_internal
+      - network_public
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: any
+        delay: 10s
+      update_config:
+        order: start-first
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=network_public"
+        - "traefik.http.routers.postop.rule=Host(`postop.seudominio.com`)"   # <<< TROQUE
+        - "traefik.http.routers.postop.entrypoints=websecure"
+        - "traefik.http.routers.postop.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.postop.service=postop-service"
+        - "traefik.http.services.postop-service.loadbalancer.server.port=8000"
+
+  worker:
+    image: ghcr.io/dhqdev/postop:latest
+    command: ["worker"]
+    environment: *env
+    volumes:
+      - postop_data:/data
+    networks:
+      - postop_internal
+    healthcheck:
+      disable: true
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager   # mesmo nó do web (dividem o volume de vídeos)
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          memory: 6G
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      TZ: America/Sao_Paulo
+      POSTGRES_USER: postop
+      POSTGRES_PASSWORD: SENHA_DO_POSTGRES          # <<< TROQUE (igual à do DATABASE_URL)
+      POSTGRES_DB: postop
+    volumes:
+      - postop_pgdata:/var/lib/postgresql/data
+    networks:
+      postop_internal:
+        aliases:
+          - postop-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postop -d postop"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: any
+
+volumes:
+  postop_data:
+    name: postop_data
+  postop_pgdata:
+    name: postop_pgdata
+
+networks:
+  postop_internal:
+    driver: overlay
+    name: postop_internal
+  network_public:
+    external: true
+    name: network_public

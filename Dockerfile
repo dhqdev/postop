@@ -13,8 +13,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TZ=America/Sao_Paulo
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg fonts-montserrat fonts-dejavu-core ca-certificates tzdata curl \
+ && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core fontconfig ca-certificates tzdata curl \
  && rm -rf /var/lib/apt/lists/*
+
+# Fonte das legendas (Montserrat ExtraBold, licença OFL). Se o download falhar, o libass usa DejaVu.
+RUN mkdir -p /usr/share/fonts/truetype/montserrat \
+ && (curl -fsSL -o /usr/share/fonts/truetype/montserrat/Montserrat-ExtraBold.ttf \
+      https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-ExtraBold.ttf \
+     || echo "aviso: fonte Montserrat não baixada") \
+ && fc-cache -f
 
 # Deno: runtime JS que o yt-dlp usa para resolver o player do YouTube
 COPY --from=deno /deno /usr/local/bin/deno

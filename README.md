@@ -63,7 +63,7 @@ A cada push na `main`:
 1. **Lint e testes** (ruff + pytest com ffmpeg real).
 2. **Versão**: calcula a próxima versão semver pelos commits desde a última tag
    (`feat:` → minor, `!:`/`BREAKING CHANGE` → major, resto → patch).
-3. **Imagem Docker** publicada em `ghcr.io/dhqdev/postop` com as tags `latest`, `X.Y.Z`, `X.Y` e `sha-…`.
+3. **Imagem Docker** (amd64 e arm64, ex.: VPS Oracle Ampere) publicada em `ghcr.io/dhqdev/postop` com as tags `latest`, `X.Y.Z`, `X.Y` e `sha-…`.
 4. **Release** `vX.Y.Z` criada no GitHub com as notas automáticas.
 
 Para atualizar no Portainer: abra a stack e clique em **Update the stack** com **Re-pull image** ligado

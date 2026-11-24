@@ -347,11 +347,24 @@ def concat_xfade(clips: list[Path], out: Path, fade: float = 0.5) -> float:
     return sum(durations) - fade * (len(clips) - 1)
 
 
-def finalize(video: Path, out: Path, ass: Path | None, music: Path | None = None) -> None:
-    """Queima legendas e adiciona trilha (opcional) ao vídeo final."""
+def finalize(
+    video: Path, out: Path, ass: Path | None, music: Path | None = None, audio: Path | None = None
+) -> None:
+    """Queima legendas e adiciona a trilha ao vídeo final.
+
+    `audio` é uma trilha já mixada (narração/efeitos/música); `music` toca em loop; sem nenhum dos
+    dois vai uma trilha silenciosa.
+    """
     vf = "format=yuv420p"
     if ass is not None:
         vf = f"subtitles='{_filter_path(ass)}':fontsdir=/usr/share/fonts,format=yuv420p"
+    if audio is not None:
+        ffmpeg(
+            "-i", str(video), "-i", str(audio), "-vf", vf, "-map", "0:v", "-map", "1:a",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-shortest",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", str(out),
+        )  # fmt: skip
+        return
     args = ["-i", str(video)]
     if music is not None:
         args += ["-stream_loop", "-1", "-i", str(music)]

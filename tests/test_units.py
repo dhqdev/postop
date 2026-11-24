@@ -166,6 +166,9 @@ def test_script_prompt_has_3d_catalog():
     system, user = script_prompts({"prompt": "gato", "style": "neon"})
     assert "CATÁLOGO 3D" in system and "scene3d" in system and "astronaut" in system and "stack" in system
     assert "Neon" in user
+    assert "narration" not in system and "{narration" not in system
+    spoken, _ = script_prompts({"prompt": "gato", "narration": True, "seconds_per_scene": 4})
+    assert "- narration:" in spoken and '"narration": "..."' in spoken and "até 12 palavras" in spoken
 
 
 def test_retired_model_is_replaced(monkeypatch):

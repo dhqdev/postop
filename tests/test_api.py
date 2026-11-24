@@ -96,6 +96,10 @@ def test_themes_and_prompt3d_with_theme():
         "/api/jobs/prompt3d", json={"prompt": "abc", "animation": "ai", "custom_style": "glossy toys"}
     )
     assert old.status_code == 200 and "animation" not in old.json()["params"]
+    params = old.json()["params"]
+    assert params["narration"] is True and params["sfx"] is True and params["voice"] == "pf_dora"
+    assert c.post("/api/jobs/prompt3d", json={"prompt": "abc", "voice": "nao-existe"}).status_code == 400
+    assert {v["key"] for v in data["voices"]} == {"pf_dora", "pm_alex", "pm_santa"}
 
 
 def test_settings_have_only_text_models():

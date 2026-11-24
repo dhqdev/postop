@@ -14,6 +14,10 @@ Plataforma para criar vídeos verticais (9:16) e postar no TikTok.
    aparece e o que faz). O servidor **monta e anima as cenas em 3D por código** (pessoas, animais, objetos, blocos,
    cenários), sem gerar imagem nem vídeo por IA, e junta tudo com transições, texto na tela e música opcional.
    Sem API key (ou se a IA falhar) o roteiro é montado automaticamente a partir da ideia.
+   **Som**: narração com voz em português gerada no próprio servidor (Kokoro: Dora, Alex ou Santa), com a
+   legenda acompanhando a fala palavra por palavra; efeitos sonoros e ambiente sintetizados por código e
+   sincronizados com as cenas (passos, quedas, explosões, pássaros, chuva, ondas...); e música opcional, que
+   abaixa sozinha quando a narração fala. Cada item liga e desliga no painel.
    Os temas ficam em `app/pipelines/themes.py` (fácil de criar novos).
 
 Depois é só postar no TikTok (Content Posting API oficial): publicação direta ou envio para os rascunhos do app.
@@ -34,6 +38,8 @@ Depois é só postar no TikTok (Content Posting API oficial): publicação diret
 |---|---|---|
 | Escolher cortes / roteiro | `google/gemini-2.5-flash-lite` (reserva `openrouter/free`) | US$ 0,10 / 0,40 por milhão de tokens (centavos por vídeo); reserva grátis |
 | Cenas 3D | motor próprio (`app/render3d`) | grátis |
+| Narração | voz local Kokoro (baixa ~350 MB uma vez, em `DATA_DIR/models/kokoro`) | grátis |
+| Efeitos sonoros e ambiente | sintetizados por código (`app/render3d/sound.py`) | grátis |
 | Transcrição | Whisper local (`small`) | grátis |
 
 - Sem créditos no OpenRouter, os modelos `:free` e o `openrouter/free` têm limite de 50 pedidos por dia

@@ -89,3 +89,36 @@ def test_prompt3d_without_api_key_uses_automatic_script():
     scene = vids[0]["meta"]["scenes"][0]["scene3d"]
     assert scene["setting"] == "beach"
     assert scene["actors"][0]["type"] == "robot" and scene["actors"][0]["actions"] == ["dance"]
+
+
+class FakeNarrator:
+    """Voz simulada (tom) para testar o fluxo sem baixar o modelo."""
+
+    def __init__(self, voice="pf_dora", speed=1.05, report=None):
+        self.voice, self.speed = voice, speed
+
+    def say(self, text, speed=None):
+        import numpy as np
+
+        n = int(24000 * 0.45 * max(1, len(text.split())))
+        return (np.sin(np.arange(n) * 0.11) * 0.6).astype(np.float32), 24000
+
+
+def test_prompt3d_with_narration_and_sound_effects(monkeypatch):
+    from app import media, tts
+
+    init_db()
+    st.set_many({"openrouter_api_key": ""})
+    monkeypatch.setattr(tts, "Narrator", FakeNarrator)
+    j, vids = _run_job(
+        {"prompt": "blocos coloridos empilhando numa torre", "scenes": 1, "seconds_per_scene": 2,
+         "narration": True, "voice": "pm_alex", "sfx": True, "captions": True}
+    )  # fmt: skip
+    assert j["status"] == "done", j["error"]
+    assert "Narração gerada" in j["log"]
+    v = vids[0]
+    assert v["meta"]["narration"] is True and v["meta"]["sfx"] is True and v["meta"]["voice"] == "pm_alex"
+    path = config.media_dir / v["file"]
+    assert media.has_audio(path)
+    # 6 palavras x 0,45 s de fala: a cena cresce além dos 2 s pedidos
+    assert v["duration"] > 2.9

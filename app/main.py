@@ -23,6 +23,7 @@ from .db import Job, Video, get_db, init_db
 from .openrouter import OpenRouter, OpenRouterError, summarize_models
 from .pipelines.themes import STYLES, THEME_MAP, public_styles, public_themes
 from .pipelines.youtube_clips import is_youtube_url
+from .tts import DEFAULT_VOICE, VOICES, public_voices
 
 STATIC = Path(__file__).parent / "static"
 log = logging.getLogger("postop")
@@ -136,7 +137,7 @@ def put_settings(data: SettingsIn, _: str = User) -> dict:
 
 @app.get("/api/themes")
 def get_themes(_: str = User) -> dict:
-    return {"themes": public_themes(), "styles": public_styles()}
+    return {"themes": public_themes(), "styles": public_styles(), "voices": public_voices()}
 
 
 @app.post("/api/openrouter/test")
@@ -198,6 +199,9 @@ class Prompt3DIn(BaseModel):
     seconds_per_scene: float = Field(3.5, ge=2, le=10)
     style: str = "pixar3d"
     theme: str = ""
+    narration: bool = True
+    voice: str = DEFAULT_VOICE
+    sfx: bool = True
     captions: bool = True
     music_path: str = ""
     auto_post: bool = False
@@ -228,6 +232,8 @@ def create_prompt3d(data: Prompt3DIn, db: Session = Depends(get_db), _: str = Us
         raise HTTPException(400, "Tema desconhecido")
     if data.style not in STYLES:
         raise HTTPException(400, "Estilo desconhecido")
+    if data.voice not in VOICES:
+        raise HTTPException(400, "Voz desconhecida")
     params = data.model_dump()
     if params["music_path"]:
         p = config.data_dir / "uploads" / Path(params["music_path"]).name

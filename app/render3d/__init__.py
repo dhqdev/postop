@@ -36,10 +36,18 @@ def render_scene(
     width: int = 1080,
     height: int = 1920,
     fps: int = 30,
+    audio_out: str | None = None,
 ) -> str:
-    """Renderiza uma cena em mp4 (sem áudio). Função de módulo para rodar em outro processo."""
+    """Renderiza uma cena em mp4 (sem áudio) e, se pedido, a trilha de efeitos/ambiente em wav.
+
+    Função de módulo para poder rodar em outro processo.
+    """
     scene = Scene(spec, seconds, look, seed, index)
     render_to_mp4(scene, Path(out), seconds, fps, width, height)
+    if audio_out:
+        from .sound import scene_audio, write_wav
+
+        write_wav(audio_out, scene_audio(scene, seed))
     return str(out)
 
 

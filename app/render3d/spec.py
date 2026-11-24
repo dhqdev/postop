@@ -751,6 +751,7 @@ def offline_script(prompt: str, n: int, theme_world: str = "studio", words: int 
         scenes.append(
             {
                 "text": chunks[i] if i < len(chunks) else "",
+                "narration": chunks[i] if i < len(chunks) else "",
                 "scene3d": {
                     "setting": setting,
                     "time": time,

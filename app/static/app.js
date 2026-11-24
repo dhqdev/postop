@@ -183,7 +183,7 @@ function renderHealth() {
 }
 async function loadThemes() {
   if (!state.themes) {
-    try { const t = await api("/api/themes"); state.themes = t.themes; state.styles = t.styles; } catch { state.themes = []; state.styles = []; }
+    try { const t = await api("/api/themes"); state.themes = t.themes; state.styles = t.styles; state.voices = t.voices || []; } catch { state.themes = []; state.styles = []; state.voices = []; }
   }
   return state.themes;
 }
@@ -491,9 +491,15 @@ async function viewPrompt3d(query) {
   const cards = [{ key: "", name: "Ideia livre", tagline: "Descreva do seu jeito, sem regras de gênero", icon: "free" }, ...themes];
   const hasKey = Boolean(setting("openrouter_api_key")?.is_set);
   const textModel = setting("text_model")?.value || "";
+  const voices = state.voices?.length ? state.voices : [{ key: "pf_dora", name: "Dora (feminina)" }];
+  const pref = (k, d) => { try { const v = localStorage.getItem("postop." + k); return v === null ? d : v; } catch { return d; } };
+  const savePref = (k, v) => { try { localStorage.setItem("postop." + k, v); } catch { /* sem armazenamento */ } };
+  const savedNarration = pref("narration", "1") === "1";
+  const savedSfx = pref("sfx", "1") === "1";
+  const savedVoice = voices.some((v) => v.key === pref("voice", "")) ? pref("voice", "") : voices[0].key;
   $("#view").innerHTML = pageHead("cube", "Vídeo 3D por tema",
-    "Escolha um tema e a ideia já vem pronta. A IA escreve o roteiro e o PostOp monta e anima cada cena em 3D no próprio servidor: cenários, pessoas, animais e objetos.",
-    ["Tema", "Roteiro (IA)", "Cenas 3D", "Animação", "Vídeo 9:16"]) + `
+    "Escolha um tema e a ideia já vem pronta. A IA escreve o roteiro e o PostOp monta, anima e narra cada cena em 3D no próprio servidor: cenários, pessoas, animais, objetos, voz e efeitos sonoros.",
+    ["Tema", "Roteiro (IA)", "Cenas 3D", "Voz e som", "Vídeo 9:16"]) + `
     <form id="f" autocomplete="off">
       <input type="hidden" name="theme" value="">
       <div class="card">
@@ -521,9 +527,12 @@ async function viewPrompt3d(query) {
         <p class="help" id="engine-note" style="margin-top:14px"></p>
       </div>
       <div class="card">
-        <div class="step-title"><span class="n">4</span>Texto e música</div>
-        ${toggle("captions", "Texto de cada cena na tela", "Frases curtas do roteiro aparecem sobre o vídeo.", true)}
-        <label class="toggle-row" style="cursor:default"><span class="t"><b>Música de fundo</b><span>Opcional: mp3, m4a, wav, aac ou ogg.</span></span></label>
+        <div class="step-title"><span class="n">4</span>Som e texto</div>
+        ${toggle("narration", "Narração", "Voz em português gerada no próprio servidor, sem custo. Na primeira vez o sistema baixa a voz (cerca de 350 MB).", savedNarration)}
+        <div id="voice-box" style="margin:4px 0 12px">${radioChips("voice", voices.map((v) => [v.key, esc(v.name)]), savedVoice)}</div>
+        ${toggle("sfx", "Efeitos sonoros e ambiente", "Passos, quedas, explosões, pássaros, chuva, ondas... gerados por código e sincronizados com cada cena.", savedSfx)}
+        ${toggle("captions", "Legenda na tela", "Com narração, a legenda acompanha a fala palavra por palavra.", true)}
+        <label class="toggle-row" style="cursor:default"><span class="t"><b>Música de fundo</b><span>Opcional: mp3, m4a, wav, aac ou ogg. Abaixa sozinha quando a narração fala.</span></span></label>
         <input type="file" name="music" accept="audio/*" aria-label="Música de fundo">
       </div>
       ${postFields()}
@@ -544,7 +553,11 @@ async function viewPrompt3d(query) {
     $("#o-secs").textContent = `${String(secs).replace(".", ",")} s`;
     const theme = themes.find((t) => t.key === f.get("theme"));
     const style = styles.find((s) => s.key === f.get("style"))?.name || "";
-    $("#sum").innerHTML = `<b>${esc(theme?.name || "Ideia livre")}</b> · ${esc(style)} · ${scenes} cenas · ≈ ${Math.round(scenes * secs)} s · 3D no servidor`;
+    const narr = f.get("narration") === "on";
+    const voice = voices.find((v) => v.key === f.get("voice"))?.name.split(" ")[0] || "";
+    const sound = [narr ? `narração (${voice})` : "", f.get("sfx") === "on" ? "efeitos" : ""].filter(Boolean).join(" + ");
+    $("#sum").innerHTML = `<b>${esc(theme?.name || "Ideia livre")}</b> · ${esc(style)} · ${scenes} cenas · ≈ ${Math.round(scenes * secs)} s${narr ? "+" : ""} · ${esc(sound || "sem som")}`;
+    $("#voice-box").hidden = !narr;
   };
   const showIdeas = (theme) => {
     $("#theme-note").innerHTML = theme ? `<div class="theme-note">${ic(theme.icon)}<div><b>${esc(theme.name)}</b> · ${esc(theme.tagline)}.
@@ -588,6 +601,8 @@ async function viewPrompt3d(query) {
   });
   form.addEventListener("input", (e) => {
     if (e.target === ta) $$("#ideas .chip").forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.idea === ta.value)));
+    if (e.target.name === "narration" || e.target.name === "sfx") savePref(e.target.name, e.target.checked ? "1" : "0");
+    if (e.target.name === "voice") savePref("voice", e.target.value);
     update();
   });
   pickTheme(first ? first.key : "", { fill: Boolean(first) });
@@ -605,7 +620,8 @@ async function viewPrompt3d(query) {
       }
       const body = {
         prompt: f.get("prompt").trim(), theme: f.get("theme") || "", style: f.get("style"), scenes: Number(f.get("scenes")),
-        seconds_per_scene: Number(f.get("seconds_per_scene")), captions: f.get("captions") === "on", music_path, ...postValues(f),
+        seconds_per_scene: Number(f.get("seconds_per_scene")), captions: f.get("captions") === "on", music_path,
+        narration: f.get("narration") === "on", voice: f.get("voice") || voices[0].key, sfx: f.get("sfx") === "on", ...postValues(f),
       };
       const j = await api("/api/jobs/prompt3d", { method: "POST", body });
       toast(`Vídeo na fila (#${j.id})`); location.hash = `#/jobs?novo=${j.id}`;

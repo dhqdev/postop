@@ -442,8 +442,7 @@ pre.log { background: var(--bg); border: 1px solid var(--border); border-radius:
   .theme .ti .i { width: 18px; height: 18px; }
   .theme b { font-size: 13.5px; line-height: 1.25; display: block; }
   .theme span.d, .theme br, .theme .meta { display: none; }
-  .theme .ok { top: 50%; transform: translateY(-50%); right: 10px; width: 18px; height: 18px; }
-  .theme[aria-pressed=true] { padding-right: 34px; }
+  .theme[aria-pressed=true] .ok { display: none; }
   .actionbar { bottom: calc(76px + env(safe-area-inset-bottom)); padding: 10px 10px 10px 14px; }
   .actionbar .sum { font-size: 12px; }
   .toast { left: 16px; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom)); max-width: none; }

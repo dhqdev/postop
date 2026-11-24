@@ -47,16 +47,14 @@ def test_render_clip_vertical_with_subtitles(tmp_path):
     assert thumb.exists()
 
 
-def test_local_3d_animation_pipeline(tmp_path):
-    imgs = []
-    for i, color in enumerate(["red", "blue"]):
-        p = tmp_path / f"img{i}.png"
-        media.ffmpeg("-f", "lavfi", "-i", f"color=c={color}:size=576x1024", "-frames:v", "1", str(p))
-        imgs.append(p)
+def test_concat_and_finalize_scenes(tmp_path):
     clips = []
-    for i, img in enumerate(imgs):
+    for i, color in enumerate(["red", "blue"]):
         c = tmp_path / f"c{i}.mp4"
-        media.ken_burns(img, c, 1.5, media.MOVES[i])
+        media.ffmpeg(
+            "-f", "lavfi", "-i", f"color=c={color}:size=1080x1920:rate=30:duration=1.5",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(c),
+        )  # fmt: skip
         clips.append(c)
     joined = tmp_path / "joined.mp4"
     total = media.concat_xfade(clips, joined, fade=0.5)

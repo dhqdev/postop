@@ -2,28 +2,25 @@
 
 Cada tema é um "card" no painel: ao clicar, o formulário é preenchido com uma ideia pronta,
 o estilo visual, o número de cenas e o tempo por cena. No backend, o tema também muda o
-roteiro: as regras do gênero (`guide`) entram no prompt do roteirista.
+roteiro: as regras do gênero (`guide`) entram no prompt do roteirista, e `world`/`actor`
+dizem ao motor 3D qual cenário e protagonista usar quando a IA não disser.
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
+# Estilo visual do motor 3D (cores, luz, névoa, brilho). A descrição vai para o roteirista.
 STYLES = {
-    "pixar3d": "3D animated movie style, Pixar-like, soft global illumination, subsurface scattering, "
-    "expressive characters, octane render, cinematic depth of field",
-    "realista3d": "photorealistic 3D CGI render, Unreal Engine 5, ray tracing, cinematic lighting, "
-    "ultra detailed, volumetric light",
-    "documental": "hyper detailed 3D documentary visualization, nature documentary look, natural light, "
-    "macro detail, realistic textures, cinematic composition",
-    "sombrio": "dark cinematic horror 3D render, low key lighting, thick fog, desaturated cold colors, "
-    "eerie atmosphere, volumetric moonlight, film grain, unsettling composition",
-    "fantasia": "epic fantasy 3D illustration, magical glowing particles, painterly volumetric light, "
-    "mythical atmosphere, rich colors, highly detailed",
-    "anime3d": "3D anime style, cel-shaded, vibrant colors, dynamic composition, studio quality render",
-    "lowpoly": "low poly 3D isometric diorama, clean geometric shapes, soft pastel lighting, blender render",
-    "clay": "claymation 3D style, plasticine textures, handcrafted miniature set, tilt-shift, soft light",
-    "neon": "futuristic 3D render, cyberpunk neon lights, glossy reflections, dark atmosphere, octane render",
+    "pixar3d": "animação 3D colorida e fofa, luz suave e brilho nos contornos",
+    "realista3d": "3D sóbrio, contraste e sombras marcadas",
+    "documental": "tons naturais de documentário",
+    "sombrio": "noite, névoa, cores frias, câmera tremida e clima de terror",
+    "fantasia": "mágico, brilhos no ar e cores ricas",
+    "anime3d": "cores vivas e sombreamento em faixas, como anime",
+    "lowpoly": "low poly em tons pastel",
+    "clay": "massinha, tons pastel e textura granulada",
+    "neon": "noite com luzes neon e brilho intenso",
 }
 
 STYLE_NAMES = {
@@ -52,6 +49,8 @@ class Theme:
     ideas: tuple[str, ...]
     hashtags: tuple[str, ...]
     words: int = 8  # máximo de palavras do texto na tela por cena
+    world: str = "studio"  # cenário 3D padrão do gênero
+    actor: str = "person"  # protagonista padrão (quando a IA não disser)
 
 
 THEMES: tuple[Theme, ...] = (
@@ -78,6 +77,8 @@ THEMES: tuple[Theme, ...] = (
             "Curiosidades sobre o Brasil que até brasileiro duvida",
         ),
         hashtags=("#curiosidades", "#voceSabia", "#fatos"),
+        world="studio",
+        actor="scientist",
     ),
     Theme(
         key="terror",
@@ -102,6 +103,8 @@ THEMES: tuple[Theme, ...] = (
             "Amigos encontram uma fita VHS com a gravação do dia seguinte",
         ),
         hashtags=("#terror", "#historiasdeterror", "#medo"),
+        world="graveyard",
+        actor="ghost",
     ),
     Theme(
         key="misterios",
@@ -126,6 +129,8 @@ THEMES: tuple[Theme, ...] = (
             "As Linhas de Nazca, desenhos gigantes que só fazem sentido vistos do céu",
         ),
         hashtags=("#misterio", "#misterios", "#inexplicavel"),
+        world="forest",
+        actor="explorer",
     ),
     Theme(
         key="folclore",
@@ -148,6 +153,8 @@ THEMES: tuple[Theme, ...] = (
             "O Boto cor-de-rosa aparece numa festa junina à beira do rio",
         ),
         hashtags=("#folclore", "#lendasbrasileiras", "#folclorebrasileiro"),
+        world="jungle",
+        actor="saci",
     ),
     Theme(
         key="mitologia",
@@ -169,6 +176,8 @@ THEMES: tuple[Theme, ...] = (
             "Pandora abre a caixa que não devia ser aberta",
         ),
         hashtags=("#mitologia", "#mitologiagrega", "#lendas"),
+        world="temple",
+        actor="knight",
     ),
     Theme(
         key="historia",
@@ -192,6 +201,8 @@ THEMES: tuple[Theme, ...] = (
             "Como as pirâmides do Egito provavelmente foram construídas",
         ),
         hashtags=("#historia", "#fatoshistoricos", "#aprendanotiktok"),
+        world="village",
+        actor="person",
     ),
     Theme(
         key="espaco",
@@ -214,6 +225,8 @@ THEMES: tuple[Theme, ...] = (
             "Pousando em Titã, a lua de Saturno com rios de metano",
         ),
         hashtags=("#universo", "#espaco", "#astronomia"),
+        world="space",
+        actor="astronaut",
     ),
     Theme(
         key="animais",
@@ -236,6 +249,8 @@ THEMES: tuple[Theme, ...] = (
             "A vida secreta de uma colônia de formigas",
         ),
         hashtags=("#animais", "#natureza", "#vidaselvagem"),
+        world="forest",
+        actor="fox",
     ),
     Theme(
         key="e_se",
@@ -259,6 +274,8 @@ THEMES: tuple[Theme, ...] = (
             "E se os humanos conseguissem hibernar como os ursos?",
         ),
         hashtags=("#ese", "#ciencia", "#curiosidades"),
+        world="space",
+        actor="earth",
     ),
     Theme(
         key="ciencia",
@@ -281,6 +298,8 @@ THEMES: tuple[Theme, ...] = (
             "O que acontece em um segundo quando um raio cai",
         ),
         hashtags=("#ciencia", "#corpohumano", "#aprendanotiktok"),
+        world="lab",
+        actor="scientist",
     ),
     Theme(
         key="fabula",
@@ -303,6 +322,8 @@ THEMES: tuple[Theme, ...] = (
             "O ursinho que aprendeu a esperar a sua vez",
         ),
         hashtags=("#historiainfantil", "#fabula", "#criancas"),
+        world="forest",
+        actor="turtle",
     ),
     Theme(
         key="motivacional",
@@ -325,6 +346,8 @@ THEMES: tuple[Theme, ...] = (
             "Do quarto pequeno ao palco lotado",
         ),
         hashtags=("#motivacao", "#foco", "#disciplina"),
+        world="mountains",
+        actor="athlete",
     ),
     Theme(
         key="satisfatorio",
@@ -337,17 +360,20 @@ THEMES: tuple[Theme, ...] = (
         words=4,
         guide=(
             "Vídeo satisfatório e relaxante, sem narrativa: cada cena mostra um movimento suave e "
-            "tátil (massinha sendo cortada, areia cinética, gotas, engrenagens se encaixando) em "
-            "cores harmoniosas. Texto na tela mínimo: uma ou duas palavras, ou vazio."
+            "hipnótico com objetos (blocos se empilhando, dominós caindo em fila, bolinhas quicando, "
+            "engrenagens girando, cubos montando formas) em cores harmoniosas. Texto na tela mínimo: "
+            "uma ou duas palavras, ou vazio."
         ),
         ideas=(
-            "Massinha colorida sendo cortada em fatias perfeitas",
-            "Bolinhas de gude descendo trilhos de madeira em espiral",
-            "Areia cinética sendo moldada em formas geométricas",
-            "Engrenagens douradas se encaixando perfeitamente",
-            "Gotas de tinta formando flores dentro da água",
+            "Blocos coloridos caindo um a um até formar uma torre perfeita",
+            "Uma fila enorme de dominós caindo em sequência",
+            "Bolinhas de gude quicando em ritmo hipnótico",
+            "Engrenagens douradas girando juntas sem parar",
+            "Cubos que se montam sozinhos numa pirâmide e depois explodem",
         ),
         hashtags=("#satisfatorio", "#satisfying", "#relaxante"),
+        world="studio",
+        actor="block",
     ),
     Theme(
         key="humor",
@@ -369,6 +395,8 @@ THEMES: tuple[Theme, ...] = (
             "A capivara que virou influencer de bem-estar",
         ),
         hashtags=("#humor", "#comedia", "#absurdo"),
+        world="city",
+        actor="cat",
     ),
 )
 

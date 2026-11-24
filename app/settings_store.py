@@ -42,7 +42,7 @@ FIELDS: tuple[Field, ...] = (
     ),
     Field(
         "text_model",
-        "Modelo de texto (escolher cortes / roteiro)",
+        "Modelo de texto (escolher cortes / roteiro do vídeo 3D)",
         "google/gemini-2.5-flash-lite",
         group="openrouter",
         help="Barato (US$ 0,10/0,40 por milhão de tokens) e bom com JSON. Para zero custo use openrouter/free.",
@@ -53,28 +53,6 @@ FIELDS: tuple[Field, ...] = (
         "openrouter/free",
         group="openrouter",
         help="Usado se o principal falhar. 'openrouter/free' sorteia um modelo grátis (50 pedidos/dia sem créditos).",
-    ),
-    Field(
-        "image_model",
-        "Modelo de imagem",
-        "recraft/recraft-v4.1-flash-v2",
-        group="openrouter",
-        help="Recraft V4.1 Flash: ~US$ 0,007 por imagem (6 cenas ≈ US$ 0,04). A versão :free sai do ar em 28/11/2026.",
-    ),
-    Field(
-        "image_fallback_model",
-        "Modelo de imagem reserva",
-        "google/gemini-2.5-flash-image",
-        group="openrouter",
-        help="Gemini 2.5 Flash Image (Nano Banana): ~US$ 0,04 por imagem.",
-    ),
-    Field(
-        "video_model",
-        "Modelo de vídeo (modo IA)",
-        "google/veo-3.1-lite",
-        group="openrouter",
-        help="Só no modo 'IA de vídeo'. Veo 3.1 Lite: US$ 0,03/s sem áudio, 9:16, cenas de 4/6/8 s. "
-        "Mais barato: bytedance/seedance-1-5-pro.",
     ),
     # --- Vídeo / legendas ---
     Field(
@@ -148,11 +126,9 @@ INTERNAL_KEYS = INTERNAL_SECRET_KEYS | {
 
 FIELD_MAP = {f.key: f for f in FIELDS}
 
-# Modelos que saíram (ou vão sair) do OpenRouter -> substituto. Vale também para valores já salvos.
-RETIRED_MODELS = {
-    "recraft/recraft-v4.1-flash-v2:free": "recraft/recraft-v4.1-flash-v2",  # free sai em 28/11/2026
-}
-MODEL_KEYS = {"text_model", "text_fallback_model", "image_model", "image_fallback_model", "video_model"}
+# Modelos que saíram do OpenRouter -> substituto. Vale também para valores já salvos.
+RETIRED_MODELS: dict[str, str] = {}
+MODEL_KEYS = {"text_model", "text_fallback_model"}
 
 
 def _fernet() -> Fernet:

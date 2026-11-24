@@ -91,8 +91,18 @@ def test_themes_and_prompt3d_with_theme():
     assert j["title"].startswith("Terror:") and j["params"]["theme"] == "terror"
     assert c.post("/api/jobs/prompt3d", json={"prompt": "abc", "theme": "nao-existe"}).status_code == 400
     assert c.post("/api/jobs/prompt3d", json={"prompt": "abc", "style": "nao-existe"}).status_code == 400
-    ok = c.post("/api/jobs/prompt3d", json={"prompt": "abc", "style": "x", "custom_style": "glossy toys"})
-    assert ok.status_code == 200
+    # campos antigos (modo de imagem/vídeo por IA) são ignorados
+    old = c.post(
+        "/api/jobs/prompt3d", json={"prompt": "abc", "animation": "ai", "custom_style": "glossy toys"}
+    )
+    assert old.status_code == 200 and "animation" not in old.json()["params"]
+
+
+def test_settings_have_only_text_models():
+    c = login(client())
+    keys = {f["key"] for f in c.get("/api/settings").json()["fields"]}
+    assert {"text_model", "text_fallback_model"} <= keys
+    assert not keys & {"image_model", "image_fallback_model", "video_model"}
 
 
 def test_index_uses_versioned_assets():

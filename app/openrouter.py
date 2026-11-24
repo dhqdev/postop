@@ -1,11 +1,9 @@
-"""Cliente OpenRouter: texto (chat), imagens e vídeo."""
+"""Cliente OpenRouter: só texto (chat). É a única IA do sistema: escolhe cortes e escreve roteiros."""
 
 from __future__ import annotations
 
-import base64
 import json
 import re
-import time
 from dataclasses import dataclass
 
 import httpx
@@ -123,118 +121,6 @@ class OpenRouter:
                     errors.append(f"{model}: {exc}")
         raise OpenRouterError("Nenhum modelo de texto respondeu: " + " | ".join(errors)[-1500:])
 
-    # ---------------------------------------------------------------- imagens
-    def generate_image(self, model: str, prompt: str, aspect_ratio: str = "9:16") -> tuple[bytes, float]:
-        """Gera uma imagem. Usa a Image API e, se não disponível, o chat com modalities."""
-        resp = self.client.post(
-            f"{BASE_URL}/images",
-            headers=_headers(self.api_key),
-            json={"model": model, "prompt": prompt, "n": 1, "aspect_ratio": aspect_ratio},
-        )
-        if resp.status_code < 400:
-            body = resp.json()
-            data = (body.get("data") or [{}])[0]
-            if data.get("b64_json"):
-                return base64.b64decode(data["b64_json"]), _cost(body)
-            if data.get("url"):
-                return self._download(data["url"]), _cost(body)
-        elif resp.status_code not in (404, 405, 400, 422):
-            _raise_for(resp, f"Imagem ({model})")
-
-        # Fallback: chat completions com saída de imagem
-        payload = {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "modalities": ["image", "text"],
-            "image_config": {"aspect_ratio": aspect_ratio},
-            "usage": {"include": True},
-        }
-        resp = self.client.post(f"{BASE_URL}/chat/completions", headers=_headers(self.api_key), json=payload)
-        _raise_for(resp, f"Imagem ({model})")
-        body = resp.json()
-        try:
-            images = body["choices"][0]["message"].get("images") or []
-            url = images[0]["image_url"]["url"]
-        except (KeyError, IndexError) as exc:
-            raise OpenRouterError(f"O modelo {model} não retornou imagem") from exc
-        return self._decode_url(url), _cost(body)
-
-    def _decode_url(self, url: str) -> bytes:
-        if url.startswith("data:"):
-            return base64.b64decode(url.split(",", 1)[1])
-        return self._download(url)
-
-    def _download(self, url: str, headers: dict[str, str] | None = None) -> bytes:
-        r = self.client.get(url, headers=headers, follow_redirects=True)
-        _raise_for(r, "Download")
-        return r.content
-
-    # ------------------------------------------------------------------ vídeo
-    def video_models(self) -> list[dict]:
-        resp = self.client.get(f"{BASE_URL}/videos/models", headers=_headers(self.api_key))
-        _raise_for(resp, "Modelos de vídeo")
-        return resp.json().get("data", [])
-
-    def submit_video(
-        self,
-        model: str,
-        prompt: str,
-        first_frame: bytes | None = None,
-        duration: int = 4,
-        aspect_ratio: str = "9:16",
-        resolution: str = "720p",
-        generate_audio: bool = False,
-    ) -> str:
-        payload: dict = {
-            "model": model,
-            "prompt": prompt,
-            "duration": duration,
-            "aspect_ratio": aspect_ratio,
-            "resolution": resolution,
-            "generate_audio": generate_audio,
-        }
-        if first_frame:
-            b64 = base64.b64encode(first_frame).decode()
-            payload["frame_images"] = [
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{b64}"},
-                    "frame_type": "first_frame",
-                }
-            ]
-        resp = self.client.post(f"{BASE_URL}/videos", headers=_headers(self.api_key), json=payload)
-        _raise_for(resp, f"Vídeo ({model})")
-        job_id = resp.json().get("id")
-        if not job_id:
-            raise OpenRouterError("OpenRouter não retornou o id do vídeo")
-        return job_id
-
-    def wait_video(self, job_id: str, timeout: float = 900, interval: float = 15) -> tuple[bytes, float]:
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            resp = self.client.get(f"{BASE_URL}/videos/{job_id}", headers=_headers(self.api_key))
-            _raise_for(resp, "Status do vídeo")
-            body = resp.json()
-            status = body.get("status")
-            if status == "completed":
-                content = self.client.get(
-                    f"{BASE_URL}/videos/{job_id}/content",
-                    params={"index": 0},
-                    headers=_headers(self.api_key),
-                    follow_redirects=True,
-                )
-                if content.status_code >= 400 and body.get("unsigned_urls"):
-                    url = body["unsigned_urls"][0]
-                    # só manda a chave quando a URL é da própria API do OpenRouter
-                    auth = _headers(self.api_key) if url.startswith(BASE_URL) else None
-                    return self._download(url, auth), _cost(body)
-                _raise_for(content, "Download do vídeo")
-                return content.content, _cost(body)
-            if status in ("failed", "cancelled", "expired"):
-                raise OpenRouterError(f"Geração de vídeo {status}: {body.get('error') or body}")
-            time.sleep(interval)
-        raise OpenRouterError("Tempo esgotado esperando o vídeo do OpenRouter")
-
     # -------------------------------------------------------------- utilitários
     def key_info(self) -> dict:
         resp = self.client.get(f"{BASE_URL}/key", headers=_headers(self.api_key))
@@ -248,11 +134,13 @@ class OpenRouter:
 
 
 def summarize_models(models: list[dict]) -> dict[str, list[dict]]:
-    """Agrupa modelos por tipo de saída e ordena pelo preço (mais barato primeiro)."""
-    groups: dict[str, list[dict]] = {"text": [], "image": []}
+    """Modelos de texto ordenados pelo preço (grátis e mais baratos primeiro)."""
+    text: list[dict] = []
     for m in models:
         arch = m.get("architecture") or {}
         out = arch.get("output_modalities") or ["text"]
+        if "text" not in out or "image" in out:
+            continue
         pricing = m.get("pricing") or {}
 
         def p(k: str, pricing: dict = pricing) -> float:
@@ -261,19 +149,15 @@ def summarize_models(models: list[dict]) -> dict[str, list[dict]]:
             except (TypeError, ValueError):
                 return 0.0
 
-        item = {
-            "id": m.get("id"),
-            "name": m.get("name"),
-            "context": m.get("context_length"),
-            "prompt_per_m": round(p("prompt") * 1_000_000, 4),
-            "completion_per_m": round(p("completion") * 1_000_000, 4),
-            "image_price": p("image"),
-            "free": (m.get("id") or "").endswith(":free") or (p("prompt") == 0 and p("completion") == 0),
-        }
-        if "image" in out:
-            groups["image"].append(item)
-        if "text" in out and "image" not in out:
-            groups["text"].append(item)
-    for k in groups:
-        groups[k].sort(key=lambda x: (not x["free"], x["prompt_per_m"] + x["completion_per_m"]))
-    return groups
+        text.append(
+            {
+                "id": m.get("id"),
+                "name": m.get("name"),
+                "context": m.get("context_length"),
+                "prompt_per_m": round(p("prompt") * 1_000_000, 4),
+                "completion_per_m": round(p("completion") * 1_000_000, 4),
+                "free": (m.get("id") or "").endswith(":free") or (p("prompt") == 0 and p("completion") == 0),
+            }
+        )
+    text.sort(key=lambda x: (not x["free"], x["prompt_per_m"] + x["completion_per_m"]))
+    return {"text": text}

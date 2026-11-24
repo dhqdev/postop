@@ -116,8 +116,8 @@ def test_summarize_models():
         },
     ]
     g = summarize_models(data)
-    assert [m["id"] for m in g["text"]] == ["b/free:free", "a/txt"]
-    assert g["image"][0]["id"] == "c/img"
+    assert [m["id"] for m in g["text"]] == ["b/free:free", "a/txt"]  # modelos de imagem ficam de fora
+    assert list(g) == ["text"]
     assert g["text"][1]["prompt_per_m"] == 0.1
 
 
@@ -153,12 +153,24 @@ def test_merge_hashtags_keeps_theme_tags():
 
 
 def test_themes_are_consistent():
+    from app.render3d.models import REGISTRY
+    from app.render3d.world import SETTINGS
+
     assert len({t.key for t in THEMES}) == len(THEMES)
     for t in THEMES:
         assert t.style in STYLES and len(t.ideas) >= 3 and 1 <= t.scenes <= 15 and 2 <= t.seconds <= 10
+        assert t.world in SETTINGS and t.actor in REGISTRY
 
 
-def test_retired_model_is_replaced():
+def test_script_prompt_has_3d_catalog():
+    system, user = script_prompts({"prompt": "gato", "style": "neon"})
+    assert "CATÁLOGO 3D" in system and "scene3d" in system and "astronaut" in system and "stack" in system
+    assert "Neon" in user
+
+
+def test_retired_model_is_replaced(monkeypatch):
     init_db()
-    st.set_many({"image_model": "recraft/recraft-v4.1-flash-v2:free"})
-    assert st.get("image_model") == "recraft/recraft-v4.1-flash-v2"
+    monkeypatch.setitem(st.RETIRED_MODELS, "velho/modelo:free", "novo/modelo")
+    st.set_many({"text_model": "velho/modelo:free"})
+    assert st.get("text_model") == "novo/modelo"
+    st.set_many({"text_model": ""})

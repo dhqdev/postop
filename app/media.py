@@ -87,12 +87,13 @@ def _escape(text: str) -> str:
     return text.replace("\\", "").replace("{", "(").replace("}", ")").replace("\n", " ")
 
 
-def ass_header(font_size: int = 86, margin_v: int = 520) -> str:
+def ass_header(font_size: int = 86, margin_v: int = 520, wrap: int = 2) -> str:
+    """wrap: 2 = sem quebra (legenda palavra a palavra); 0 = quebra automática (frases das cenas)."""
     return f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {W}
 PlayResY: {H}
-WrapStyle: 2
+WrapStyle: {wrap}
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
@@ -162,7 +163,7 @@ def build_ass(
 
 def build_scene_ass(scenes: list[tuple[float, float, str]]) -> str:
     """Legendas fixas por cena (modo prompt/3D)."""
-    out = [ass_header(font_size=78, margin_v=380)]
+    out = [ass_header(font_size=74, margin_v=380, wrap=0)]
     for start, end, text in scenes:
         if text.strip():
             out.append(
@@ -307,60 +308,7 @@ def render_clip(
     ffmpeg(*args)
 
 
-# ------------------------------------------------------- animação "3D" local
-MOVES = ("zoom_in", "pan_right", "zoom_out", "pan_up", "pan_left", "dolly")
-
-
-def ken_burns(image: Path, out: Path, seconds: float, move: str) -> None:
-    """Movimento de câmera tipo parallax/2.5D sobre uma imagem (grátis, local)."""
-    frames = max(int(seconds * FPS), FPS)
-    # Escala 1.6x para ter margem de movimento sem perder nitidez
-    sw, sh = int(W * 1.6), int(H * 1.6)
-    d = frames
-    exprs = {
-        "zoom_in": ("1+0.30*on/{d}", "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"),
-        "zoom_out": ("1.30-0.30*on/{d}", "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"),
-        "pan_right": ("1.22", "(iw-iw/zoom)*on/{d}", "ih/2-(ih/zoom/2)"),
-        "pan_left": ("1.22", "(iw-iw/zoom)*(1-on/{d})", "ih/2-(ih/zoom/2)"),
-        "pan_up": ("1.22", "iw/2-(iw/zoom/2)", "(ih-ih/zoom)*(1-on/{d})"),
-        "dolly": ("1+0.25*on/{d}", "(iw-iw/zoom)*(0.3+0.4*on/{d})", "(ih-ih/zoom)*(0.6-0.2*on/{d})"),
-    }
-    z, x, y = (e.format(d=d) for e in exprs.get(move, exprs["zoom_in"]))
-    vf = (
-        f"scale={sw}:{sh}:force_original_aspect_ratio=increase,crop={sw}:{sh},"
-        f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={W}x{H}:fps={FPS},"
-        f"unsharp=5:5:0.6,format=yuv420p"
-    )
-    ffmpeg(
-        "-loop",
-        "1",
-        "-i",
-        str(image),
-        "-vf",
-        vf,
-        "-frames:v",
-        str(frames),
-        "-t",
-        f"{seconds:.2f}",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-crf",
-        "20",
-        "-an",
-        str(out),
-    )
-
-
-def normalize_clip(src: Path, out: Path, seconds: float | None = None) -> None:
-    vf = f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},fps={FPS},setsar=1,format=yuv420p"
-    args = ["-i", str(src), "-vf", vf, "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]
-    if seconds:
-        args += ["-t", f"{seconds:.2f}"]
-    ffmpeg(*args, str(out))
-
-
+# ------------------------------------------------------------ montagem
 def concat_xfade(clips: list[Path], out: Path, fade: float = 0.5) -> float:
     """Junta clipes com transição suave. Retorna a duração final."""
     if not clips:

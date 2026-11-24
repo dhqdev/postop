@@ -152,25 +152,9 @@ def openrouter_test(_: str = User) -> dict:
 def openrouter_models(_: str = User) -> dict:
     client = OpenRouter(st.get("openrouter_api_key"), timeout=60)
     try:
-        groups = summarize_models(client.list_models())
+        return summarize_models(client.list_models())
     except OpenRouterError as exc:
         raise HTTPException(400, str(exc)) from exc
-    try:
-        videos = client.video_models()
-    except OpenRouterError:
-        videos = []
-    groups["video"] = [
-        {
-            "id": v.get("id"),
-            "name": v.get("name", v.get("id")),
-            "durations": v.get("supported_durations"),
-            "aspect_ratios": v.get("supported_aspect_ratios"),
-            "resolutions": v.get("supported_resolutions"),
-            "pricing": v.get("pricing_skus"),
-        }
-        for v in videos
-    ]
-    return groups
 
 
 # --------------------------------------------------------------------- jobs
@@ -214,9 +198,6 @@ class Prompt3DIn(BaseModel):
     seconds_per_scene: float = Field(3.5, ge=2, le=10)
     style: str = "pixar3d"
     theme: str = ""
-    custom_style: str = ""
-    animation: str = Field("local", pattern="^(local|ai)$")
-    ai_fallback: bool = True
     captions: bool = True
     music_path: str = ""
     auto_post: bool = False
@@ -245,7 +226,7 @@ def create_youtube(data: YoutubeIn, db: Session = Depends(get_db), _: str = User
 def create_prompt3d(data: Prompt3DIn, db: Session = Depends(get_db), _: str = User) -> dict:
     if data.theme and data.theme not in THEME_MAP:
         raise HTTPException(400, "Tema desconhecido")
-    if data.style not in STYLES and not data.custom_style.strip():
+    if data.style not in STYLES:
         raise HTTPException(400, "Estilo desconhecido")
     params = data.model_dump()
     if params["music_path"]:

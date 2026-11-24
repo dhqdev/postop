@@ -290,8 +290,8 @@ async function viewDashboard() {
       <a class="path cyan" href="#/prompt3d">
         <div class="head-icon">${ic("cube", "lg")}</div>
         <h2>Vídeo 3D por tema</h2>
-        <p>Escolha um tema como terror ou curiosidades. A IA escreve o roteiro, cria as cenas em 3D e anima tudo.</p>
-        <div class="flow"><span>Tema</span><span class="sep">›</span><span>Roteiro</span><span class="sep">›</span><span>Imagens 3D</span><span class="sep">›</span><span>Animação</span></div>
+        <p>Escolha um tema como terror ou curiosidades. A IA escreve o roteiro e o PostOp monta e anima as cenas em 3D.</p>
+        <div class="flow"><span>Tema</span><span class="sep">›</span><span>Roteiro</span><span class="sep">›</span><span>Cenas 3D</span><span class="sep">›</span><span>Animação</span></div>
         <span class="go">Criar vídeo 3D ${ic("arrow", "sm")}</span>
       </a>
     </div>
@@ -310,7 +310,7 @@ async function viewDashboard() {
     if (key && tk) return;
     const item = (ok, label, href, tab) => `<a class="chip ${ok ? "active" : ""}" href="${href}" data-tab="${tab}">${ic(ok ? "check" : "plus", "sm")}${label}</a>`;
     $("#setup").innerHTML = `<div class="card setup"><div class="grow"><h2 style="margin:0 0 2px">Primeiros passos</h2>
-      <div class="muted small">${[key, tk].filter(Boolean).length} de 2 concluídos. A chave da IA é necessária para gerar; o TikTok só para postar.</div></div>
+      <div class="muted small">${[key, tk].filter(Boolean).length} de 2 concluídos. A chave da IA escreve os roteiros e escolhe os cortes; o TikTok é só para postar.</div></div>
       <div class="steps-mini">${item(key, "Chave do OpenRouter", "#/configuracoes", "openrouter")}${item(tk, "Conectar o TikTok", "#/tiktok-guia", "tiktok")}</div></div>`;
   }).catch(() => {});
   every(5000, async () => {
@@ -484,15 +484,16 @@ const THEME_HUE = { "": 220, curiosidades: 45, terror: 355, misterios: 270, folc
   animais: 95, e_se: 185, ciencia: 165, fabula: 320, motivacional: 10, satisfatorio: 290, humor: 55 };
 const STYLE_SWATCH = { pixar3d: "#7cc4ff,#ffb86b", realista3d: "#9aa4b2,#3b4252", documental: "#8fbf7f,#3d5a3a", sombrio: "#2b2f3a,#0b0c10",
   fantasia: "#c08bff,#ffcf6b", anime3d: "#ff7eb6,#7aa2ff", lowpoly: "#ffd6a5,#a0c4ff", clay: "#ffadad,#fdffb6", neon: "#ff2bd6,#2be4ff" };
-const VEO_LITE_DURATIONS = [4, 6, 8];
 async function viewPrompt3d(query) {
   const [themes] = await Promise.all([loadThemes(), state.settings ? null : loadSettings().catch(() => null)]);
   const styles = state.styles?.length ? state.styles : [{ key: "pixar3d", name: "Animação 3D" }];
   const first = query.get("tema") && themes.find((t) => t.key === query.get("tema"));
   const cards = [{ key: "", name: "Ideia livre", tagline: "Descreva do seu jeito, sem regras de gênero", icon: "free" }, ...themes];
+  const hasKey = Boolean(setting("openrouter_api_key")?.is_set);
+  const textModel = setting("text_model")?.value || "";
   $("#view").innerHTML = pageHead("cube", "Vídeo 3D por tema",
-    "Escolha um tema e a ideia já vem pronta. A IA escreve o roteiro seguindo as regras do gênero, cria uma imagem 3D por cena e anima tudo em 9:16.",
-    ["Tema", "Roteiro", "Imagens 3D", "Animação", "Vídeo 9:16"]) + `
+    "Escolha um tema e a ideia já vem pronta. A IA escreve o roteiro e o PostOp monta e anima cada cena em 3D no próprio servidor: cenários, pessoas, animais e objetos.",
+    ["Tema", "Roteiro (IA)", "Cenas 3D", "Animação", "Vídeo 9:16"]) + `
     <form id="f" autocomplete="off">
       <input type="hidden" name="theme" value="">
       <div class="card">
@@ -506,7 +507,7 @@ async function viewPrompt3d(query) {
         <div class="step-title"><span class="n">2</span>Ideia do vídeo</div>
         <div id="theme-note"></div>
         <label style="margin-bottom:12px"><textarea name="prompt" required minlength="3" aria-label="Ideia do vídeo"
-          placeholder="Ex.: um astronauta gato descobrindo um planeta feito de doces"></textarea></label>
+          placeholder="Ex.: um gato astronauta descobrindo um planeta feito de doces"></textarea></label>
         <div id="ideas"></div>
       </div>
       <div class="card">
@@ -517,44 +518,24 @@ async function viewPrompt3d(query) {
           <div class="range"><label><span class="top">Cenas<output id="o-scenes"></output></span><input type="range" name="scenes" min="1" max="15" step="1" value="6"></label></div>
           <div class="range"><label><span class="top">Segundos por cena<output id="o-secs"></output></span><input type="range" name="seconds_per_scene" min="2" max="10" step="0.5" value="3.5"></label></div>
         </div>
-        <p class="help" id="img-cost" style="margin-top:14px"></p>
+        <p class="help" id="engine-note" style="margin-top:14px"></p>
       </div>
       <div class="card">
-        <div class="step-title"><span class="n">4</span>Animação</div>
-        <div id="anim"></div>
-        <div id="ai-extra" style="margin-top:6px"></div>
-        <div style="margin-top:10px">
-          ${toggle("captions", "Texto de cada cena na tela", "Frases curtas do roteiro aparecem sobre o vídeo.", true)}
-          <label class="toggle-row" style="cursor:default"><span class="t"><b>Música de fundo</b><span>Opcional: mp3, m4a, wav, aac ou ogg.</span></span></label>
-          <input type="file" name="music" accept="audio/*" aria-label="Música de fundo">
-        </div>
+        <div class="step-title"><span class="n">4</span>Texto e música</div>
+        ${toggle("captions", "Texto de cada cena na tela", "Frases curtas do roteiro aparecem sobre o vídeo.", true)}
+        <label class="toggle-row" style="cursor:default"><span class="t"><b>Música de fundo</b><span>Opcional: mp3, m4a, wav, aac ou ogg.</span></span></label>
+        <input type="file" name="music" accept="audio/*" aria-label="Música de fundo">
       </div>
-      <details class="more"><summary>${ic("wand")}<span>Estilo personalizado <span class="sub">· avançado</span></span>${ic("chevron")}</summary>
-        <div class="in"><label>Descrição do estilo, em inglês<input name="custom_style" placeholder="ex.: isometric 3D, glossy toys, studio light">
-          <span class="help">Se preenchido, substitui o estilo visual escolhido acima.</span></label></div></details>
       ${postFields()}
       <div class="actionbar"><div class="sum" id="sum"></div><button class="btn primary lg" type="submit">${ic("sparkle", "sm")} Gerar vídeo</button></div>
     </form>`;
   const form = $("#f");
   const ta = form.prompt;
   let lastIdea = "";
-  const videoModel = setting("video_model")?.value || "";
-  const imageModel = setting("image_model")?.value || "";
-  const aiDuration = (secs) => VEO_LITE_DURATIONS.find((d) => d >= secs) || 8;
+  $("#engine-note").innerHTML = `${ic("cube", "sm")} As cenas são desenhadas e animadas pelo motor 3D do PostOp, sem custo de imagem. ` +
+    (hasKey ? `Só o roteiro usa IA (<code>${esc(textModel || "modelo das Configurações")}</code>, centavos por vídeo).`
+      : `Sem chave do OpenRouter, o roteiro é montado automaticamente a partir da ideia. <a href="#/configuracoes">Configurar a IA</a> para roteiros melhores.`);
 
-  const renderAnim = () => {
-    const f = new FormData(form);
-    const scenes = Number(f.get("scenes")), secs = Number(f.get("seconds_per_scene"));
-    const current = f.get("animation") || "local";
-    const aiTag = videoModel === "google/veo-3.1-lite"
-      ? `<span class="tag paid">≈ ${fmtUsd(scenes * aiDuration(secs) * 0.03)}</span>` : `<span class="tag paid">pago</span>`;
-    $("#anim").innerHTML = optionCards("animation", [
-      ["local", "layers", "Efeito 3D local", "Movimento de câmera e parallax feitos no servidor.", `<span class="tag free">grátis</span>`],
-      ["ai", "film", "IA de vídeo", `Cada cena vira um clipe animado por IA (${esc(videoModel || "modelo das Configurações")}).`, aiTag],
-    ], current);
-    $("#ai-extra").innerHTML = current === "ai" ? toggle("ai_fallback", "Se a IA de vídeo falhar, usar o efeito local", "", aiFallback) : "";
-  };
-  let aiFallback = true;
   const update = () => {
     const f = new FormData(form);
     const scenes = Number(f.get("scenes")), secs = Number(f.get("seconds_per_scene"));
@@ -562,13 +543,8 @@ async function viewPrompt3d(query) {
     $("#o-scenes").textContent = scenes;
     $("#o-secs").textContent = `${String(secs).replace(".", ",")} s`;
     const theme = themes.find((t) => t.key === f.get("theme"));
-    const anim = f.get("animation") === "ai" ? "IA de vídeo" : "efeito local grátis";
-    const total = f.get("animation") === "ai" ? scenes * aiDuration(secs) : scenes * secs;
     const style = styles.find((s) => s.key === f.get("style"))?.name || "";
-    $("#sum").innerHTML = `<b>${esc(theme?.name || "Ideia livre")}</b> · ${esc(f.get("custom_style").trim() ? "estilo personalizado" : style)} · ${scenes} cenas · ≈ ${Math.round(total)} s · ${anim}`;
-    const per = imageModel.endsWith(":free") ? 0 : imageModel === "recraft/recraft-v4.1-flash-v2" ? 0.007 : imageModel === "google/gemini-2.5-flash-image" ? 0.04 : null;
-    $("#img-cost").innerHTML = `${ic("image", "sm")} ${scenes} imagem${scenes > 1 ? "s" : ""} 3D com <code>${esc(imageModel || "modelo das Configurações")}</code>` +
-      (per === 0 ? " · grátis" : per ? ` · ≈ ${fmtUsd(per * scenes)}` : "");
+    $("#sum").innerHTML = `<b>${esc(theme?.name || "Ideia livre")}</b> · ${esc(style)} · ${scenes} cenas · ≈ ${Math.round(scenes * secs)} s · 3D no servidor`;
   };
   const showIdeas = (theme) => {
     $("#theme-note").innerHTML = theme ? `<div class="theme-note">${ic(theme.icon)}<div><b>${esc(theme.name)}</b> · ${esc(theme.tagline)}.
@@ -588,7 +564,7 @@ async function viewPrompt3d(query) {
       if (fill && !edited) { ta.value = theme.ideas[0]; lastIdea = ta.value; }
       else if (fill && edited) toast("Tema aplicado. Sua ideia foi mantida; toque numa sugestão para trocar.");
     }
-    showIdeas(theme); renderAnim(); update();
+    showIdeas(theme); update();
   };
   $("#themes").addEventListener("click", (e) => {
     const b = e.target.closest(".theme");
@@ -611,13 +587,9 @@ async function viewPrompt3d(query) {
     update();
   });
   form.addEventListener("input", (e) => {
-    if (e.target.name === "ai_fallback") aiFallback = e.target.checked;
-    if (["scenes", "seconds_per_scene"].includes(e.target.name)) renderAnim();
-    if (e.target.name === "animation") renderAnim();
     if (e.target === ta) $$("#ideas .chip").forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.idea === ta.value)));
     update();
   });
-  renderAnim();
   pickTheme(first ? first.key : "", { fill: Boolean(first) });
 
   form.addEventListener("submit", async (e) => {
@@ -633,9 +605,7 @@ async function viewPrompt3d(query) {
       }
       const body = {
         prompt: f.get("prompt").trim(), theme: f.get("theme") || "", style: f.get("style"), scenes: Number(f.get("scenes")),
-        seconds_per_scene: Number(f.get("seconds_per_scene")), custom_style: f.get("custom_style"),
-        animation: f.get("animation") || "local", ai_fallback: f.get("animation") === "ai" ? f.get("ai_fallback") === "on" : true,
-        captions: f.get("captions") === "on", music_path, ...postValues(f),
+        seconds_per_scene: Number(f.get("seconds_per_scene")), captions: f.get("captions") === "on", music_path, ...postValues(f),
       };
       const j = await api("/api/jobs/prompt3d", { method: "POST", body });
       toast(`Vídeo na fila (#${j.id})`); location.hash = `#/jobs?novo=${j.id}`;
@@ -755,9 +725,6 @@ async function postDialog(id) {
 const CFG_TABS = { openrouter: ["chip", "IA (OpenRouter)"], video: ["captions", "Vídeo e legendas"], tiktok: ["phone", "TikTok"] };
 const RECOMMENDED = [
   ["text_model", "Texto", [["google/gemini-2.5-flash-lite", "US$ 0,10 / 0,40 por milhão de tokens"], ["openrouter/free", "grátis, modelo sorteado"]]],
-  ["image_model", "Imagem", [["recraft/recraft-v4.1-flash-v2", "≈ US$ 0,007 por imagem"], ["bytedance-seed/seedream-5-0-flash", "≈ US$ 0,018 por imagem"],
-    ["google/gemini-2.5-flash-image", "≈ US$ 0,04 por imagem"]]],
-  ["video_model", "Vídeo", [["google/veo-3.1-lite", "US$ 0,03/s sem áudio"], ["bytedance/seedance-1-5-pro", "a partir de ≈ US$ 0,012/s"]]],
 ];
 async function viewSettings(query) {
   const s = await loadSettings();
@@ -791,7 +758,7 @@ function renderTab(tab) {
   let extra = "";
   if (tab === "openrouter") {
     extra = `<div class="card"><div class="section-head"><h2>Modelos recomendados</h2><span class="muted small">preços de nov/2026</span></div>
-      <p class="muted small">Toque em "usar" para preencher o campo e depois em Salvar. O efeito 3D local e a transcrição (Whisper) são sempre grátis.</p>
+      <p class="muted small">A IA só escreve texto (roteiros e escolha dos cortes). As cenas 3D e a transcrição (Whisper) são feitas no servidor, sem custo. Toque em "usar" para preencher o campo e depois em Salvar.</p>
       <table><tbody>${RECOMMENDED.map(([key, label, models]) => models.map(([id, price], i) => `<tr>
         ${i === 0 ? `<td rowspan="${models.length}" class="muted small" style="width:80px">${label}</td>` : ""}
         <td><code>${esc(id)}</code></td><td class="small muted">${esc(price)}</td>
@@ -854,11 +821,7 @@ async function loadModels() {
       <tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td>${c[1](r)}</td>`).join("")}<td>${use(key, r.id)}</td></tr>`).join("")}</tbody></table></div>`;
     const price = (m) => m.free ? `<span class="tag free">grátis</span>` : `<span class="small">$${m.prompt_per_m}/M in · $${m.completion_per_m}/M out</span>`;
     $("#models").innerHTML = `
-      <h3>Texto (mais baratos primeiro)</h3>${table(g.text.slice(0, 60), "text_model", [["Modelo", (m) => `<code>${esc(m.id)}</code>`], ["Preço", price]])}
-      <h3>Imagem</h3>${table(g.image, "image_model", [["Modelo", (m) => `<code>${esc(m.id)}</code>`], ["Preço", price]])}
-      <h3>Vídeo</h3>${g.video.length ? table(g.video, "video_model", [["Modelo", (m) => `<code>${esc(m.id)}</code>`],
-        ["Formatos", (m) => esc((m.aspect_ratios || []).join(", "))], ["Durações (s)", (m) => esc((m.durations || []).join(", "))],
-        ["Preço", (m) => `<span class="small">${esc(JSON.stringify(m.pricing || ""))}</span>`]]) : `<p class="muted">Nenhum retornado.</p>`}`;
+      <h3>Texto (mais baratos primeiro)</h3>${table(g.text.slice(0, 60), "text_model", [["Modelo", (m) => `<code>${esc(m.id)}</code>`], ["Preço", price]])}`;
   } catch (err) { $("#models").innerHTML = `<div class="callout">${ic("alert")}<div>${esc(err.message)}</div></div>`; }
 }
 function useModel(key, id) {

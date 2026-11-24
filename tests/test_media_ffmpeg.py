@@ -65,3 +65,34 @@ def test_concat_and_finalize_scenes(tmp_path):
     media.finalize(joined, final, ass)
     assert media.video_size(final) == (1080, 1920)
     assert media.has_audio(final)
+
+
+def test_transcribe_passes_decoded_audio_to_whisper(tmp_path, monkeypatch):
+    """O Whisper recebe o áudio já decodificado (16 kHz mono), sem depender do PyAV."""
+    import sys
+    import types
+
+    import numpy as np
+
+    src = _source_video(tmp_path / "src.mp4", seconds=2)
+    got = {}
+
+    class FakeWhisper:
+        def __init__(self, size, **kw):
+            got["size"] = size
+
+        def transcribe(self, audio, **kw):
+            got["audio"], got["kw"] = audio, kw
+            w = types.SimpleNamespace(start=0.1, end=0.5, word=" Olá")
+            return iter([types.SimpleNamespace(words=[w])]), None
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeWhisper))
+    monkeypatch.setattr(media, "_whisper_cache", {})
+    words = media.transcribe(src, "tiny", "pt", tmp_path / "models")
+    assert [w.text for w in words] == [" Olá"]
+    audio = got["audio"]
+    assert isinstance(audio, np.ndarray) and audio.dtype == np.float32
+    assert abs(len(audio) / 16000 - 2.0) < 0.1
+    assert 0.1 < float(np.abs(audio).max()) <= 1.0
+    assert got["kw"]["language"] == "pt" and got["kw"]["word_timestamps"] is True
+    assert not list(tmp_path.glob("*.f32"))

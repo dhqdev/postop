@@ -182,6 +182,22 @@ def _filter_path(p: Path) -> str:
 _whisper_cache: dict[str, object] = {}
 
 
+def load_audio_16k(path: Path):
+    """Áudio em 16 kHz mono (float32) decodificado pelo ffmpeg, pronto para o Whisper.
+
+    O Whisper recebe o array em vez do caminho: o decodificador interno do faster-whisper
+    (PyAV) quebrou no PyAV 19 (`open() got an unexpected keyword argument 'metadata_errors'`).
+    """
+    import numpy as np
+
+    raw = path.with_name(path.name + ".f32")
+    try:
+        ffmpeg("-i", str(path), "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", str(raw))
+        return np.fromfile(raw, dtype=np.float32)
+    finally:
+        raw.unlink(missing_ok=True)
+
+
 def transcribe(audio: Path, model_size: str, language: str, models_dir: Path) -> list[Word]:
     from faster_whisper import WhisperModel  # import tardio (pesado)
 
@@ -193,7 +209,8 @@ def transcribe(audio: Path, model_size: str, language: str, models_dir: Path) ->
         )
     model = _whisper_cache[key]
     lang = None if language in ("", "auto") else language
-    segments, _info = model.transcribe(str(audio), language=lang, word_timestamps=True, vad_filter=True)  # type: ignore[attr-defined]
+    samples = load_audio_16k(audio)
+    segments, _info = model.transcribe(samples, language=lang, word_timestamps=True, vad_filter=True)  # type: ignore[attr-defined]
     words: list[Word] = []
     for seg in segments:
         for w in seg.words or []:

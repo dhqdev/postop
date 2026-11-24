@@ -164,8 +164,8 @@ class OpenRouter:
             return base64.b64decode(url.split(",", 1)[1])
         return self._download(url)
 
-    def _download(self, url: str) -> bytes:
-        r = self.client.get(url, follow_redirects=True)
+    def _download(self, url: str, headers: dict[str, str] | None = None) -> bytes:
+        r = self.client.get(url, headers=headers, follow_redirects=True)
         _raise_for(r, "Download")
         return r.content
 
@@ -209,7 +209,7 @@ class OpenRouter:
             raise OpenRouterError("OpenRouter não retornou o id do vídeo")
         return job_id
 
-    def wait_video(self, job_id: str, timeout: float = 900, interval: float = 8) -> tuple[bytes, float]:
+    def wait_video(self, job_id: str, timeout: float = 900, interval: float = 15) -> tuple[bytes, float]:
         deadline = time.time() + timeout
         while time.time() < deadline:
             resp = self.client.get(f"{BASE_URL}/videos/{job_id}", headers=_headers(self.api_key))
@@ -224,11 +224,14 @@ class OpenRouter:
                     follow_redirects=True,
                 )
                 if content.status_code >= 400 and body.get("unsigned_urls"):
-                    return self._download(body["unsigned_urls"][0]), _cost(body)
+                    url = body["unsigned_urls"][0]
+                    # só manda a chave quando a URL é da própria API do OpenRouter
+                    auth = _headers(self.api_key) if url.startswith(BASE_URL) else None
+                    return self._download(url, auth), _cost(body)
                 _raise_for(content, "Download do vídeo")
                 return content.content, _cost(body)
-            if status == "failed":
-                raise OpenRouterError(f"Geração de vídeo falhou: {body.get('error') or body}")
+            if status in ("failed", "cancelled", "expired"):
+                raise OpenRouterError(f"Geração de vídeo {status}: {body.get('error') or body}")
             time.sleep(interval)
         raise OpenRouterError("Tempo esgotado esperando o vídeo do OpenRouter")
 

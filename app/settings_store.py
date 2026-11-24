@@ -45,45 +45,47 @@ FIELDS: tuple[Field, ...] = (
         "Modelo de texto (escolher cortes / roteiro)",
         "google/gemini-2.5-flash-lite",
         group="openrouter",
-        help="Barato e bom com JSON. Grátis: google/gemma-4-26b-a4b-it:free ou openrouter/free.",
+        help="Barato (US$ 0,10/0,40 por milhão de tokens) e bom com JSON. Para zero custo use openrouter/free.",
     ),
     Field(
         "text_fallback_model",
         "Modelo de texto reserva",
         "openrouter/free",
         group="openrouter",
-        help="Usado se o principal falhar. 'openrouter/free' escolhe um modelo grátis.",
+        help="Usado se o principal falhar. 'openrouter/free' sorteia um modelo grátis (50 pedidos/dia sem créditos).",
     ),
     Field(
         "image_model",
         "Modelo de imagem",
-        "recraft/recraft-v4.1-flash-v2:free",
+        "recraft/recraft-v4.1-flash-v2",
         group="openrouter",
-        help="Grátis (50 imagens/dia sem créditos). Reserva paga abaixo.",
+        help="Recraft V4.1 Flash: ~US$ 0,007 por imagem (6 cenas ≈ US$ 0,04). A versão :free sai do ar em 28/11/2026.",
     ),
     Field(
         "image_fallback_model",
         "Modelo de imagem reserva",
         "google/gemini-2.5-flash-image",
         group="openrouter",
-        help="Nano Banana: ~US$ 0,04 por imagem.",
+        help="Gemini 2.5 Flash Image (Nano Banana): ~US$ 0,04 por imagem.",
     ),
     Field(
         "video_model",
         "Modelo de vídeo (modo IA)",
         "google/veo-3.1-lite",
         group="openrouter",
-        help="Só usado quando a animação é 'IA'. Veo 3.1 Lite: US$ 0,03/s sem áudio, aceita 9:16.",
+        help="Só no modo 'IA de vídeo'. Veo 3.1 Lite: US$ 0,03/s sem áudio, 9:16, cenas de 4/6/8 s. "
+        "Mais barato: bytedance/seedance-1-5-pro.",
     ),
     # --- Vídeo / legendas ---
     Field(
         "whisper_model",
         "Modelo de transcrição (local, grátis)",
-        "base",
+        "small",
         group="video",
         kind="select",
-        options=("tiny", "base", "small", "medium"),
-        help="Roda no servidor, sem custo. 'small' é mais preciso, porém mais lento.",
+        options=("tiny", "base", "small", "medium", "turbo"),
+        help="Roda no servidor, sem custo. 'small' é o equilíbrio para português; 'turbo' (large-v3-turbo) "
+        "é o mais preciso, mas pede ~2 GB de RAM e é bem mais lento em CPU.",
     ),
     Field(
         "whisper_language",
@@ -146,6 +148,12 @@ INTERNAL_KEYS = INTERNAL_SECRET_KEYS | {
 
 FIELD_MAP = {f.key: f for f in FIELDS}
 
+# Modelos que saíram (ou vão sair) do OpenRouter -> substituto. Vale também para valores já salvos.
+RETIRED_MODELS = {
+    "recraft/recraft-v4.1-flash-v2:free": "recraft/recraft-v4.1-flash-v2",  # free sai em 28/11/2026
+}
+MODEL_KEYS = {"text_model", "text_fallback_model", "image_model", "image_fallback_model", "video_model"}
+
 
 def _fernet() -> Fernet:
     digest = hashlib.sha256(("postop-settings:" + config.secret_key).encode()).digest()
@@ -174,7 +182,8 @@ def get(key: str, db: Session | None = None) -> str:
         if row is None or row.value == "":
             f = FIELD_MAP.get(key)
             return f.default if f else ""
-        return decrypt(row.value) if row.encrypted else row.value
+        value = decrypt(row.value) if row.encrypted else row.value
+        return RETIRED_MODELS.get(value, value) if key in MODEL_KEYS else value
 
     if db is not None:
         return _get(db)

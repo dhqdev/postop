@@ -76,3 +76,25 @@ def test_public_pages():
     assert c.get("/termos").status_code == 200
     assert c.get("/privacidade").status_code == 200
     assert "PostOp" in c.get("/").text
+
+
+def test_themes_and_prompt3d_with_theme():
+    c = login(client())
+    data = c.get("/api/themes").json()
+    keys = {t["key"] for t in data["themes"]}
+    styles = {s["key"] for s in data["styles"]}
+    assert {"curiosidades", "terror"} <= keys and len(keys) >= 10
+    assert all(t["style"] in styles and t["ideas"] for t in data["themes"])
+    j = c.post(
+        "/api/jobs/prompt3d", json={"prompt": "elevador às 3h", "theme": "terror", "style": "sombrio"}
+    ).json()
+    assert j["title"].startswith("Terror:") and j["params"]["theme"] == "terror"
+    assert c.post("/api/jobs/prompt3d", json={"prompt": "abc", "theme": "nao-existe"}).status_code == 400
+    assert c.post("/api/jobs/prompt3d", json={"prompt": "abc", "style": "nao-existe"}).status_code == 400
+    ok = c.post("/api/jobs/prompt3d", json={"prompt": "abc", "style": "x", "custom_style": "glossy toys"})
+    assert ok.status_code == 200
+
+
+def test_index_uses_versioned_assets():
+    html = client().get("/").text
+    assert "/static/app.js?v=" in html and "{{v}}" not in html

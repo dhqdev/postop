@@ -2,47 +2,49 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#09090b">
   <title>PostOp · Vídeos para TikTok</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ff3b5c'/%3E%3Cstop offset='1' stop-color='%23ff8a3d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)'/%3E%3Cpath d='M13 10.5v11l9-5.5z' fill='%23fff'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/styles.css?v={{v}}">
 </head>
 <body>
   <!-- Login -->
   <section id="login" class="login hidden">
-    <form id="login-form" class="card login-card">
-      <div class="brand big">🎬 PostOp</div>
-      <p class="muted">Gerador de vídeos para TikTok</p>
+    <form id="login-form" class="login-card">
+      <div class="login-brand"><span class="logo lg" aria-hidden="true"></span><span>PostOp</span></div>
+      <h1>Entrar</h1>
+      <p class="muted">Crie vídeos verticais e poste no TikTok.</p>
       <label>Usuário<input name="username" autocomplete="username" required></label>
       <label>Senha<input name="password" type="password" autocomplete="current-password" required></label>
-      <button class="btn primary" type="submit">Entrar</button>
-      <p id="login-error" class="error"></p>
+      <button class="btn primary block" type="submit">Entrar</button>
+      <p id="login-error" class="error" role="alert"></p>
     </form>
   </section>
 
   <!-- App -->
   <div id="app" class="layout hidden">
     <aside class="sidebar">
-      <div class="brand">🎬 PostOp</div>
-      <nav id="nav">
-        <a href="#/" data-route="/">📊 Painel</a>
-        <a href="#/youtube" data-route="/youtube">✂️ Cortes do YouTube</a>
-        <a href="#/prompt3d" data-route="/prompt3d">🧊 Vídeo 3D por prompt</a>
-        <a href="#/videos" data-route="/videos">🎞️ Vídeos</a>
-        <a href="#/jobs" data-route="/jobs">⚙️ Processamentos</a>
-        <a href="#/configuracoes" data-route="/configuracoes">🔧 Configurações</a>
-        <a href="#/tiktok-guia" data-route="/tiktok-guia">📘 Passo a passo TikTok</a>
-      </nav>
+      <a class="brand" href="#/"><span class="logo" aria-hidden="true"></span><span>PostOp</span></a>
+      <nav id="nav" aria-label="Principal"></nav>
       <div class="sidebar-foot">
-        <span id="version" class="muted small"></span>
-        <button id="logout" class="btn ghost small">Sair</button>
+        <div id="health" class="health"></div>
+        <div class="foot-row">
+          <span id="version" class="muted small"></span>
+          <button id="logout" class="icon-btn" type="button" title="Sair" aria-label="Sair"></button>
+        </div>
       </div>
     </aside>
-    <main id="view" class="main"></main>
+    <header class="topbar">
+      <a class="brand" href="#/"><span class="logo" aria-hidden="true"></span><span>PostOp</span></a>
+      <div class="topbar-actions" id="topbar-actions"></div>
+    </header>
+    <main id="view" class="main" tabindex="-1"></main>
+    <nav id="tabbar" class="tabbar" aria-label="Atalhos"></nav>
   </div>
 
-  <div id="modal" class="modal hidden"><div class="modal-box card" id="modal-box"></div></div>
-  <div id="toast" class="toast hidden"></div>
-  <script src="/static/app.js"></script>
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true"><div class="modal-box" id="modal-box"></div></div>
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <script src="/static/app.js?v={{v}}"></script>
 </body>
 </html>

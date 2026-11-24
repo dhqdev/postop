@@ -2,6 +2,8 @@ from app import settings_store as st
 from app.db import init_db
 from app.media import Word, build_ass, build_scene_ass, group_words, reframe_filter, words_to_segments
 from app.openrouter import parse_json, summarize_models
+from app.pipelines.prompt3d import merge_hashtags, script_prompts
+from app.pipelines.themes import STYLES, THEMES
 from app.pipelines.youtube_clips import clean_clips, heuristic_clips, is_youtube_url
 from app.tiktok import CHUNK, chunk_plan
 
@@ -131,3 +133,32 @@ def test_settings_encryption_roundtrip():
         assert row.encrypted and "sk-or" not in row.value
     view = {f["key"]: f for f in st.public_view()}
     assert view["openrouter_api_key"]["value"] == "" and view["openrouter_api_key"]["is_set"]
+
+
+def test_script_prompts_apply_theme_rules():
+    system, user = script_prompts({"prompt": "boneca do brechó", "theme": "terror", "scenes": 5})
+    assert "GÊNERO DO VÍDEO: Terror" in system and "máx. 10 palavras" in system
+    assert "boneca do brechó" in user and "Número de cenas: 5" in user
+    plain, _ = script_prompts({"prompt": "gato astronauta"})
+    assert "GÊNERO" not in plain and "máx. 8 palavras" in plain
+    assert '{"title"' in plain  # o JSON de exemplo continua intacto
+
+
+def test_merge_hashtags_keeps_theme_tags():
+    tags = merge_hashtags(["medo", "#Terror", "#a", "#b", "#c", "#d", "#e", "#f"], "terror").split()
+    assert len(tags) <= 8
+    assert {"#terror", "#historiasdeterror", "#medo"} <= {t.lower() for t in tags}
+    assert len({t.lower() for t in tags}) == len(tags)
+    assert merge_hashtags("viral fyp", "") == "#viral #fyp"
+
+
+def test_themes_are_consistent():
+    assert len({t.key for t in THEMES}) == len(THEMES)
+    for t in THEMES:
+        assert t.style in STYLES and len(t.ideas) >= 3 and 1 <= t.scenes <= 15 and 2 <= t.seconds <= 10
+
+
+def test_retired_model_is_replaced():
+    init_db()
+    st.set_many({"image_model": "recraft/recraft-v4.1-flash-v2:free"})
+    assert st.get("image_model") == "recraft/recraft-v4.1-flash-v2"

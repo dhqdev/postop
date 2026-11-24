@@ -16,17 +16,7 @@ from ..media import (
 )
 from ..openrouter import OpenRouter, OpenRouterError
 from . import Cancelled, Ctx
-
-STYLES = {
-    "pixar3d": "3D animated movie style, Pixar-like, soft global illumination, subsurface scattering, "
-    "expressive characters, octane render, cinematic depth of field",
-    "realista3d": "photorealistic 3D CGI render, Unreal Engine 5, ray tracing, cinematic lighting, "
-    "ultra detailed, volumetric light",
-    "anime3d": "3D anime style, cel-shaded, vibrant colors, dynamic composition, studio quality render",
-    "lowpoly": "low poly 3D isometric diorama, clean geometric shapes, soft pastel lighting, blender render",
-    "clay": "claymation 3D style, plasticine textures, handcrafted miniature set, tilt-shift, soft light",
-    "neon": "futuristic 3D render, cyberpunk neon lights, glossy reflections, dark atmosphere, octane render",
-}
+from .themes import STYLES, THEME_MAP
 
 SCRIPT_SYSTEM = """Você é roteirista de vídeos curtos virais para TikTok em formato vertical 9:16.
 A partir da ideia do usuário, crie um roteiro dividido em cenas. Para cada cena gere:
@@ -34,22 +24,49 @@ A partir da ideia do usuário, crie um roteiro dividido em cenas. Para cada cena
   cenário, ângulo de câmera, iluminação). Repita a descrição física completa dos personagens em
   TODAS as cenas para manter consistência. Composição vertical, assunto centralizado.
 - motion_prompt: em inglês, como a câmera/personagem se move nessa cena (para um modelo de vídeo).
-- text: frase curta (máx. 8 palavras) que aparece na tela, no idioma do usuário.
+- text: frase curta (máx. {words} palavras) que aparece na tela, no idioma do usuário.
 Responda APENAS com JSON:
 {"title": "...", "caption": "legenda do post com emoji e chamada", "hashtags": ["#..."],
  "scenes": [{"image_prompt": "...", "motion_prompt": "...", "text": "..."}]}"""
 
 
+def script_prompts(params: dict) -> tuple[str, str]:
+    """Monta (system, user) do roteirista, com as regras do tema escolhido."""
+    theme = THEME_MAP.get(params.get("theme") or "")
+    n = int(params.get("scenes", 6))
+    system = SCRIPT_SYSTEM.replace("{words}", str(theme.words if theme else 8))
+    if theme:
+        system += f"\n\nGÊNERO DO VÍDEO: {theme.name}. Regras do gênero: {theme.guide}"
+    user = (
+        f"Ideia: {params['prompt']}\nNúmero de cenas: {n}\n"
+        f"Estilo visual: {params.get('style', 'pixar3d')}\n"
+        f"Duração por cena: {params.get('seconds_per_scene', 3.5)} segundos"
+    )
+    return system, user
+
+
+def merge_hashtags(script_tags: object, theme_key: str, limit: int = 8) -> str:
+    tags = script_tags.split() if isinstance(script_tags, str) else list(script_tags or [])
+    theme = THEME_MAP.get(theme_key or "")
+    if theme:  # as do roteiro são mais específicas; as do tema garantem o nicho
+        tags = tags[: limit - len(theme.hashtags)] + list(theme.hashtags)
+    out: list[str] = []
+    for t in tags:
+        t = str(t).strip()
+        if not t:
+            continue
+        t = t if t.startswith("#") else f"#{t}"
+        if t.lower() not in (x.lower() for x in out):
+            out.append(t)
+    return " ".join(out[:limit])
+
+
 def write_script(ctx: Ctx, client: OpenRouter) -> dict:
     p = ctx.params
     n = int(p.get("scenes", 6))
-    user = (
-        f"Ideia: {p['prompt']}\nNúmero de cenas: {n}\n"
-        f"Estilo visual: {p.get('style', 'pixar3d')}\n"
-        f"Duração por cena: {p.get('seconds_per_scene', 3.5)} segundos"
-    )
+    system, user = script_prompts(p)
     data, cost, model = client.chat_json(
-        [ctx.settings.get("text_model", ""), ctx.settings.get("text_fallback_model", "")], SCRIPT_SYSTEM, user
+        [ctx.settings.get("text_model", ""), ctx.settings.get("text_fallback_model", "")], system, user
     )
     ctx.add_cost(cost)
     ctx.log(f"Roteiro criado por {model}")
@@ -185,21 +202,19 @@ def run(ctx: Ctx, work: Path, out_dir: Path) -> list[dict]:
     out = out_dir / "video_3d.mp4"
     finalize(joined, out, ass, music)
     thumb = thumbnail(out, out_dir / "video_3d.jpg", at=1.0)
-    tags = script.get("hashtags") or []
-    if isinstance(tags, str):
-        tags = tags.split()
     return [
         {
             "file": out,
             "thumb": thumb,
             "title": str(script.get("title", "Vídeo 3D"))[:200],
             "caption": str(script.get("caption", "")),
-            "hashtags": " ".join(t if t.startswith("#") else f"#{t}" for t in tags[:8]),
+            "hashtags": merge_hashtags(script.get("hashtags"), p.get("theme", "")),
             "duration": duration_of(out),
             "score": 0.0,
             "meta": {
                 "prompt": p["prompt"],
                 "style": p.get("style"),
+                "theme": p.get("theme", ""),
                 "animation": animation,
                 "scenes": scenes,
             },

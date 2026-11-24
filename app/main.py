@@ -21,7 +21,7 @@ from . import settings_store as st
 from .config import config
 from .db import Job, Video, get_db, init_db
 from .openrouter import OpenRouter, OpenRouterError, summarize_models
-from .pipelines.prompt3d import STYLES
+from .pipelines.themes import STYLES, THEME_MAP, public_styles, public_themes
 from .pipelines.youtube_clips import is_youtube_url
 
 STATIC = Path(__file__).parent / "static"
@@ -46,8 +46,10 @@ User = Depends(auth.require_user)
 
 # ------------------------------------------------------------------ páginas
 @app.get("/", include_in_schema=False)
-def index() -> FileResponse:
-    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
+def index() -> Response:
+    # ?v=versão nos arquivos estáticos: depois de atualizar, o navegador baixa o painel novo
+    html = (STATIC / "index.html").read_text(encoding="utf-8").replace("{{v}}", quote(config.version))
+    return Response(html, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/termos", include_in_schema=False)
@@ -132,6 +134,11 @@ def put_settings(data: SettingsIn, _: str = User) -> dict:
     return get_settings(_)
 
 
+@app.get("/api/themes")
+def get_themes(_: str = User) -> dict:
+    return {"themes": public_themes(), "styles": public_styles()}
+
+
 @app.post("/api/openrouter/test")
 def openrouter_test(_: str = User) -> dict:
     try:
@@ -206,6 +213,7 @@ class Prompt3DIn(BaseModel):
     scenes: int = Field(6, ge=1, le=15)
     seconds_per_scene: float = Field(3.5, ge=2, le=10)
     style: str = "pixar3d"
+    theme: str = ""
     custom_style: str = ""
     animation: str = Field("local", pattern="^(local|ai)$")
     ai_fallback: bool = True
@@ -235,11 +243,16 @@ def create_youtube(data: YoutubeIn, db: Session = Depends(get_db), _: str = User
 
 @app.post("/api/jobs/prompt3d")
 def create_prompt3d(data: Prompt3DIn, db: Session = Depends(get_db), _: str = User) -> dict:
+    if data.theme and data.theme not in THEME_MAP:
+        raise HTTPException(400, "Tema desconhecido")
+    if data.style not in STYLES and not data.custom_style.strip():
+        raise HTTPException(400, "Estilo desconhecido")
     params = data.model_dump()
     if params["music_path"]:
         p = config.data_dir / "uploads" / Path(params["music_path"]).name
         params["music_path"] = str(p) if p.exists() else ""
-    return _enqueue(db, "prompt3d", f"3D: {data.prompt[:120]}", params)
+    label = THEME_MAP[data.theme].name if data.theme else "3D"
+    return _enqueue(db, "prompt3d", f"{label}: {data.prompt[:120]}", params)
 
 
 @app.post("/api/uploads/music")

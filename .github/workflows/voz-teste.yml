@@ -1,0 +1,54 @@
+name: Teste da voz (temporário)
+
+on:
+  push:
+    branches: [voz-e-som]
+
+jobs:
+  voz:
+    name: Voz real (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    env:
+      DATA_DIR: ${{ github.workspace }}/../data
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core
+      - name: Dependências
+        run: |
+          pip install -r requirements-dev.txt
+          pip list 2>/dev/null | grep -i -E "kokoro|onnx|espeak|phonem|numpy|whisper" || true
+          uname -m; nproc
+      - name: Lint
+        run: ruff check . && ruff format --check .
+      - name: Testes
+        run: pytest -q
+      - name: Voz real (Kokoro)
+        env:
+          POSTOP_TTS_TEST: "1"
+          POSTOP_TTS_SAMPLES: samples
+        run: pytest -q -rs tests/test_tts.py --durations=5
+      - name: Vídeo de amostra (voz + efeitos)
+        run: python .github/ci/amostra_voz.py samples pf_dora "amostra_dora_$(uname -m)"
+      - name: Transcrição (Whisper)
+        run: python .github/ci/transcrever.py small samples/*.wav samples/*.mp4
+      - name: Imagem Docker nativa com a voz
+        run: |
+          docker build -q -t postop:teste .
+          chmod 777 samples
+          docker run --rm -v "$PWD/samples:/out" -v "$PWD/.github/ci:/ci:ro" postop:teste \
+            python /ci/amostra_voz.py /out pm_alex "docker_alex_$(uname -m)"
+          ls -la samples
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: amostras-${{ matrix.os }}
+          path: samples/
+          retention-days: 3

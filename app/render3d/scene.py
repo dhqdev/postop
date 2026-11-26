@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import models as M
-from .actions import MOVING, Pose, resolve
+from .actions import MOVING, Pose, beat_segments, resolve
 from .geom import F32, Mesh, ease_io, lerp, mat4, normalize, smooth
 from .renderer import Frame, Particles, PointLight
 from .world import LOOKS, decor_mesh, make_world, structure, weather
@@ -58,6 +58,7 @@ class Actor:
         self.face_cam = 0.0
         self.subject = True
         self.flicker_faces: np.ndarray | None = None
+        self.rest_yaw = float(yaw)
         mesh = model.mesh
         self.has_emit = bool((mesh.e > 0).any())
         names = model.names
@@ -71,6 +72,7 @@ class Actor:
         P = Pose()
         P.yaw = self.yaw0
         prev = None
+        cur_k = 0
         for k, ((_name, t0, t1), fn) in enumerate(zip(self.segs, self.fns, strict=True)):
             dur = max(t1 - t0, 1e-3)
             if t >= t1 and k < len(self.segs) - 1:
@@ -85,7 +87,18 @@ class Actor:
             if prev is not None:
                 cur.blend_from(prev, smooth(lt / min(0.35, dur * 0.5)))
             P = cur
+            cur_k = k
             break
+        name, t0, _t1 = self.segs[cur_k]
+        if (
+            self.cat in ("person", "animal", "ghost")
+            and name not in MOVING
+            and name not in ("spin", "dance", "circle", "carousel")
+            and any(s[0] in MOVING for s in self.segs[:cur_k])
+        ):  # chegou: vira de frente para a câmera (ou para quem está na cena)
+            w = smooth((t - t0) / 0.7)
+            d = (self.rest_yaw - P.yaw + math.pi) % math.tau - math.pi
+            P.yaw += d * w
         self._auto(P, t)
         return P
 
@@ -404,8 +417,7 @@ class Scene:
         for g in groups:
             a: ActorSpec = g["spec"]
             acts = [x for x in a.actions if x] or ["idle"]
-            k = len(acts)
-            segs = [(acts[i], T * i / k, T * (i + 1) / k) for i in range(k)]
+            segs = beat_segments(acts, T)
             for i in range(g["n"]):
                 if i == 0:
                     model = g["proto"]
@@ -440,8 +452,9 @@ class Scene:
                     and g["pos"] != "above"
                 ):
                     base = base + np.array((0, model.hover, 0), F32)
-                yaw = self._facing(a.facing, g, i, base, acts)
+                yaw = self._facing(a.facing, g, i, base, acts, groups)
                 act = Actor(model, g["kind"], g["cat"], g["scale"], base, yaw, segs, self.rng)
+                act.rest_yaw = self._rest_yaw(a.facing, g, base, groups)
                 act.gi, act.gn, act.slot = i, g["n"], g["slots"][i]
                 d = act.slot.copy()
                 d[1] = 0
@@ -452,7 +465,32 @@ class Scene:
                 act.group = g
                 self.actors.append(act)
 
-    def _facing(self, facing: str, g: dict, i: int, base, acts) -> float:
+    @staticmethod
+    def _partner(g: dict, groups: list) -> dict | None:
+        """Outro grupo de personagens na cena (para um olhar para o outro)."""
+        chars = ("person", "animal", "ghost")
+        if g["cat"] not in chars:
+            return None
+        others = [o for o in groups if o is not g and o["cat"] in chars and o["pos"] not in ("sky", "far")]
+        return others[0] if others else None
+
+    def _rest_yaw(self, facing: str, g: dict, base, groups: list) -> float:
+        if facing in ("camera", "front"):
+            return 0.0
+        if facing == "left":
+            return -PI / 2
+        if facing == "right":
+            return PI / 2
+        mate = self._partner(g, groups)
+        if mate is not None:
+            dx = float(mate["anchor"][0] - g["anchor"][0])
+            if abs(dx) > 0.05:
+                return 0.5 if dx > 0 else -0.5
+        return (
+            0.35 if g["cat"] == "animal" and g["anchor"][0] <= 0 else (-0.35 if g["cat"] == "animal" else 0.0)
+        )
+
+    def _facing(self, facing: str, g: dict, i: int, base, acts, groups: list | None = None) -> float:
         moving = any(
             x in ("walk", "run", "drive", "fly", "swim", "push", "roll", "tumble", "slide") for x in acts
         )
@@ -486,20 +524,30 @@ class Scene:
             return across if g["anchor"][0] <= 0.01 else -across
         if g["cat"] in ("person", "animal", "ghost") and g["n"] > 1 and g["form"] in ("row", "crowd", "arc"):
             return float(self.rng.uniform(-0.25, 0.25))
-        if g["cat"] == "animal":
-            return 0.6 if g["anchor"][0] <= 0 else -0.6
-        return 0.0
+        return self._rest_yaw(facing, g, base, groups or [])
 
     def _center_paths(self) -> None:
         for a in self.actors:
-            names = {s[0] for s in a.segs}
-            if not names & MOVING or names & {"circle", "orbit", "carousel"}:
+            names = [s[0] for s in a.segs]
+            if not set(names) & MOVING or set(names) & {"circle", "orbit", "carousel"}:
                 continue
             end = a.pose(self.T).pos
-            if np.linalg.norm(end) > 0.3:
-                a.base = a.base - end * 0.5
+            if np.linalg.norm(end) <= 0.3:
+                continue
+            last_move = max(i for i, n in enumerate(names) if n in MOVING)
+            stops = any(n not in MOVING for n in names[last_move + 1 :])
+            a.base = a.base - end * (1.0 if stops else 0.5)
 
     # -------------------------------------------------------------- câmera
+    def _frame_times(self, a: Actor) -> np.ndarray:
+        """Instantes usados no enquadramento. Quem anda e para é enquadrado onde chega (entra no quadro andando)."""
+        names = [s[0] for s in a.segs]
+        moves = [i for i, n in enumerate(names) if n in MOVING]
+        if moves and any(n not in MOVING for n in names[moves[-1] + 1 :]):
+            t_stop = a.segs[moves[-1]][2]
+            return np.linspace(max(0.0, t_stop - 0.7), self.T, 6)
+        return np.linspace(0.0, self.T, 9)
+
     def _frame_camera(self, preset: str) -> None:
         subj = [a for a in self.actors if a.subject] or self.actors
         tv = math.tan(math.radians(25))
@@ -511,7 +559,7 @@ class Scene:
             for a in group:
                 r = a.model.radius * a.scale
                 h = a.model.height * a.scale
-                for t in np.linspace(0.2 * self.T, 0.8 * self.T, 4):
+                for t in self._frame_times(a):
                     P = a.pose(float(t))
                     if P.hidden:
                         continue
@@ -532,6 +580,10 @@ class Scene:
         if subj:
             g0 = getattr(subj[0], "group", None)
             main = [a for a in subj if getattr(a, "group", None) is g0]
+            chars = ("person", "animal", "ghost", "bird", "creature", "snake", "fish")
+            main += [
+                a for a in subj if a not in main and a.cat in chars
+            ]  # personagens sempre inteiros no quadro
             c_main, h_main, D_main = bbox(main)
             if D_all > D_main * 1.25:
                 k = 0.6
@@ -559,8 +611,8 @@ class Scene:
                 "low_angle",
             ]
             preset = cycle[self.scene_index % len(cycle)]
-            if main_moves and self.main is not None and self.main.gn == 1:
-                preset = "follow"
+            if main_moves and preset in ("orbit", "spiral"):
+                preset = "dolly_in"  # câmera girando + personagem andando confunde
         self.preset = preset
         if preset == "follow" and self.main is not None:
             mh = self.main.model.height * self.main.scale

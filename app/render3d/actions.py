@@ -295,7 +295,7 @@ def h_fly(a, P, p, lt, dur, t):
     P.j("hip_l", 0.15 * up)
     P.j("hip_r", 0.05 * up)
     P.j("cape", 1.2 * up + 0.15 * math.sin(lt * 14))
-    _move(a, P, 2.6 * lt * a.stride)
+    _move(a, P, 1.6 * lt * a.stride)
 
 
 def h_swim(a, P, p, lt, dur, t):
@@ -400,9 +400,10 @@ def _float(a, P, lt, t):
 
 def h_scare(a, P, p, lt, dur, t):
     _float(a, P, lt, t)
-    c = ease_out(p)
-    P.pos += fwd(P.yaw) * 1.6 * c
-    P.scale *= 1 + 0.25 * c
+    # avança, assusta e recua um pouco
+    c = ease_out(min(lt / 0.6, 1.0)) * (1 - 0.35 * smooth((lt - 1.0) / 0.6))
+    P.pos += fwd(P.yaw) * 0.6 * c
+    P.scale *= 1 + 0.15 * c
     P.j("sh_l", 0, 0, 1.6 * c)
     P.j("sh_r", 0, 0, -1.6 * c)
     P.nscale["mouth"] = 1 + 1.8 * c
@@ -556,7 +557,7 @@ def b_fly(a, P, p, lt, dur, t, travel=True):
     P.j("leg_l", 0.9)
     P.j("leg_r", 0.9)
     if travel:
-        _move(a, P, 3.0 * lt * max(a.stride, 0.4))
+        _move(a, P, 1.8 * lt * max(a.stride, 0.4))
 
 
 def b_circle(a, P, p, lt, dur, t):
@@ -795,15 +796,21 @@ def o_fly(a, P, p, lt, dur, t):
         return h_fly(a, P, p, lt, dur, t)
     if a.cat == "animal" and "flies" in a.model.tags:
         up = smooth(lt / 1.0)
-        P.lift += 2.5 * up + 0.2 * math.sin(lt * 2)
+        P.lift += 1.8 * up + 0.2 * math.sin(lt * 2)
         _flap(P, lt, 6, 0.7)
         for k in ("fl", "fr", "bl", "br"):
             P.j(f"leg_{k}", 0.6 * up)
-        _move(a, P, 3.5 * lt)
+        _move(a, P, 2.0 * lt)
         return None
-    P.lift += max(2.5, a.model.hover) + 0.2 * math.sin(lt * 2)
+    if a.cat in ("animal", "creature", "snake", "fish"):  # sem asas: "voa" flutuando perto do chão
+        up = smooth(lt / 0.8)
+        P.lift += (1.0 * up + 0.15 * math.sin(lt * 2.5)) * max(a.stride, 0.5)
+        P.pitch = -0.12 * up
+        _move(a, P, 0.8 * lt * max(a.stride, 0.5))
+        return None
+    P.lift += min(max(1.6, a.model.hover), 3.0) + 0.2 * math.sin(lt * 2)
     P.fire = True
-    _move(a, P, 4.0 * lt)
+    _move(a, P, 2.5 * lt)
     P.roll = -0.1 * math.sin(lt)
     return None
 
@@ -811,13 +818,13 @@ def o_fly(a, P, p, lt, dur, t):
 def o_approach(a, P, p, lt, dur, t):
     P.yaw = a.face_cam
     if a.cat == "person":
-        return h_walk(a, P, p, lt, dur, t)
+        return h_walk(a, P, p, lt, dur, t, speed=0.8)
     if a.cat == "animal":
         return q_walk(a, P, p, lt, dur, t)
     if a.cat in ("fish", "creature", "snake"):
         return f_swim(a, P, p, lt, dur, t)
     o_idle(a, P, p, lt, dur, t)
-    P.pos += fwd(P.yaw) * 2.2 * ease_io(p)
+    P.pos += fwd(P.yaw) * 1.2 * ease_io(p)
     return None
 
 
@@ -861,7 +868,7 @@ def o_open(a, P, p, lt, dur, t):
 def o_drive(a, P, p, lt, dur, t):
     if a.cat != "prop":
         return o_approach(a, P, p, lt, dur, t) if a.cat != "person" else h_walk(a, P, p, lt, dur, t)
-    speed = 5.0 if "wheels" in a.model.tags else 3.0
+    speed = 3.0 if "wheels" in a.model.tags else 2.2
     _move(a, P, speed * lt)
     P.lift += 0.02 * math.sin(lt * 17)
     if "boat" in a.model.tags:
@@ -1098,6 +1105,48 @@ ACTIONS: dict[str, dict[str, ActionFn]] = {
 }
 
 GROUP_ACTIONS = {"stack", "build", "domino", "group_wave", "rain", "scatter", "assemble", "carousel"}
+
+# Duração natural de cada ação (s). None = ação contínua ou que segura a pose (preenche o resto da cena).
+# Antes cada ação era esticada pela cena inteira: "pular" numa cena de 8 s virava 7 pulos seguidos (loop).
+NATURAL: dict[str, float | None] = {
+    "idle": None, "talk": None, "think": None, "look": None, "sit": None, "sleep": None, "kneel": None,
+    "fall": None, "float": None, "circle": None, "orbit": None, "pulse": None, "glow": None, "sway": None,
+    "blink": None, "swing": None, "swim": None, "carousel": None, "stack": None, "build": None, "domino": None,
+    "group_wave": None, "rain": None, "spin": None, "eat": None,
+    "walk": 2.6, "run": 1.5, "jump": 1.15, "wave": 2.2, "dance": 3.0, "cheer": 2.0, "point": 2.0, "scared": 1.8,
+    "fly": 2.6, "clap": 1.8, "bow": 1.8, "attack": 1.8, "push": 2.4, "climb": 2.4, "scare": 1.8,
+    "wag": 2.0, "howl": 2.0, "bounce": 1.6, "drop": 1.6, "grow": 1.2, "pop": 0.9, "appear": 1.0, "shrink": 1.0,
+    "vanish": 1.0, "shake": 1.2, "wobble": 1.4, "roll": 2.0, "tumble": 1.8, "slide": 1.6, "rise": 2.0,
+    "sink": 2.0, "approach": 2.2, "retreat": 2.2, "flip": 1.2, "open": 1.4, "drive": 2.6, "launch": 3.0,
+    "explode": 1.8, "scatter": 1.6, "assemble": 2.4,
+}  # fmt: skip
+
+
+def beat_segments(actions: list[str], T: float) -> list[tuple[str, float, float]]:
+    """Coloca as ações no tempo pela duração natural; o que sobra vira idle (ou a ação contínua)."""
+    acts = [a for a in actions if a] or ["idle"]
+    known = [NATURAL.get(a, 1.6) for a in acts]
+    fixed = sum(d for d in known if d is not None)
+    n_fill = sum(1 for d in known if d is None)
+    k = 1.0
+    if fixed > T * (0.9 if n_fill else 1.0):
+        k = max(0.3, T * (0.85 if n_fill else 1.0) / max(fixed, 1e-3))
+    rest = max(0.0, T - fixed * k)
+    segs: list[tuple[str, float, float]] = []
+    t = 0.0
+    for a, d in zip(acts, known, strict=True):
+        dur = d * k if d is not None else rest / max(n_fill, 1)
+        if dur <= 0.01:
+            continue
+        segs.append((a, t, t + dur))
+        t += dur
+    if n_fill == 0 and T - t > 0.05:
+        segs.append(("idle", t, T))
+    elif segs:
+        segs[-1] = (segs[-1][0], segs[-1][1], max(segs[-1][2], T))
+    return segs or [("idle", 0.0, T)]
+
+
 MOVING = {
     "walk",
     "run",

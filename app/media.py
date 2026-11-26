@@ -99,7 +99,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Main,{FONT},{font_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,6,3,2,70,70,{margin_v},1
-Style: Title,{FONT},72,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,3,4,0,8,80,80,160,1
+Style: Title,{FONT},64,&H00FFFFFF,&H00FFFFFF,&H00141414,&H96000000,-1,0,0,0,100,100,0,0,3,14,0,8,80,80,250,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -159,6 +159,11 @@ def build_ass(
                     parts.append(t)
             out.append(f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Main,,0,0,0,,{' '.join(parts)}\n")
     return "".join(out)
+
+
+def ass_title_line(text: str, start: float, end: float) -> str:
+    """Etiqueta fixa no topo do vídeo (ex.: "PARTE 2"), na caixa escura do estilo Title."""
+    return f"Dialogue: 1,{_ass_time(start)},{_ass_time(end)},Title,,0,0,0,,{{\\fad(200,200)}}{_escape(text.strip())}\n"
 
 
 def build_scene_ass(scenes: list[tuple[float, float, str]]) -> str:
@@ -364,22 +369,49 @@ def concat_xfade(clips: list[Path], out: Path, fade: float = 0.5) -> float:
     return sum(durations) - fade * (len(clips) - 1)
 
 
+def concat_cuts(clips: list[Path], out: Path) -> float:
+    """Junta clipes com corte seco (sem recodificar: todos saem do mesmo motor). Retorna a duração."""
+    if not clips:
+        raise MediaError("Nenhum clipe para juntar")
+    if len(clips) == 1:
+        shutil.copy(clips[0], out)
+        return duration_of(out)
+    lst = out.with_suffix(".txt")
+    lst.write_text("".join(f"file '{Path(c).resolve().as_posix()}'\n" for c in clips), encoding="utf-8")
+    try:
+        ffmpeg(
+            "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", "-movflags", "+faststart", str(out)
+        )
+    finally:
+        lst.unlink(missing_ok=True)
+    return duration_of(out)
+
+
 def finalize(
-    video: Path, out: Path, ass: Path | None, music: Path | None = None, audio: Path | None = None
+    video: Path,
+    out: Path,
+    ass: Path | None,
+    music: Path | None = None,
+    audio: Path | None = None,
+    copy_video: bool = False,
 ) -> None:
     """Queima legendas e adiciona a trilha ao vídeo final.
 
     `audio` é uma trilha já mixada (narração/efeitos/música); `music` toca em loop; sem nenhum dos
-    dois vai uma trilha silenciosa.
+    dois vai uma trilha silenciosa. `copy_video` (sem legenda para queimar) não recodifica o vídeo.
     """
     vf = "format=yuv420p"
     if ass is not None:
         vf = f"subtitles='{_filter_path(ass)}':fontsdir=/usr/share/fonts,format=yuv420p"
+    vcodec = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]
+    vfilter = ["-vf", vf]
+    if copy_video and ass is None:
+        vcodec, vfilter = ["-c:v", "copy"], []
     if audio is not None:
         ffmpeg(
-            "-i", str(video), "-i", str(audio), "-vf", vf, "-map", "0:v", "-map", "1:a",
+            "-i", str(video), "-i", str(audio), *vfilter, "-map", "0:v", "-map", "1:a",
             "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-shortest",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", str(out),
+            *vcodec, "-movflags", "+faststart", str(out),
         )  # fmt: skip
         return
     args = ["-i", str(video)]
@@ -417,5 +449,7 @@ def finalize(
             "aac",
             "-shortest",
         ]
-    args += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", str(out)]
+    if copy_video and ass is None:
+        args = [a for a in args if a not in ("-vf", vf)]
+    args += [*vcodec, "-movflags", "+faststart", str(out)]
     ffmpeg(*args)

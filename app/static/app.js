@@ -43,6 +43,7 @@ const ICONS = {
   info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8h.01"/>',
   chip: '<rect x="6" y="6" width="12" height="12" rx="2.5"/><path d="M9.5 2.5V6M14.5 2.5V6M9.5 18v3.5M14.5 18v3.5M2.5 9.5H6M2.5 14.5H6M18 9.5h3.5M18 14.5h3.5"/>',
   phone: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.75"/><path d="M11 18.25h2"/>',
+  palette: '<path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.1 0 1.75-.75 1.75-1.65 0-.45-.17-.85-.47-1.15a1.62 1.62 0 0 1 1.17-2.75h1.9A4.15 4.15 0 0 0 20.5 10.8C20.5 6.7 16.7 3.5 12 3.5z"/><circle cx="7.75" cy="11.5" r="1.1"/><circle cx="10.25" cy="7.6" r="1.1"/><circle cx="14.75" cy="7.6" r="1.1"/>',
   wand: '<path d="M4 20 14.5 9.5"/><path d="M13 8l3 3"/><path d="M17 3.5v2M20.5 7h-2M19.5 4.5 18 6M8 3.5v2M10 4.5H6"/>',
   image: '<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><circle cx="9" cy="9" r="1.75"/><path d="M20.5 15.5 16 11l-9 9.5"/>',
   layers: '<path d="M12 3.5 21 8l-9 4.5L3 8z"/><path d="M3 12.5l9 4.5 9-4.5"/><path d="M3 16.5l9 4.5 9-4.5"/>',
@@ -116,8 +117,9 @@ function fmtUsd(n) {
 }
 const fmtDur = (s) => { s = Math.round(Number(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 
-const KIND = { youtube: "Cortes do YouTube", prompt3d: "Vídeo 3D", tiktok_post: "Post no TikTok" };
-const KIND_ICON = { youtube: "scissors", prompt3d: "cube", tiktok_post: "send" };
+const KIND = { youtube: "Cortes do YouTube", anim2d: "Animação 2D", prompt3d: "Vídeo 3D", tiktok_post: "Post no TikTok" };
+const KIND_ICON = { youtube: "scissors", anim2d: "palette", prompt3d: "cube", tiktok_post: "send" };
+const KIND_PILL = { youtube: "Corte", anim2d: "2D", prompt3d: "3D" };
 const STATUS = { queued: "na fila", running: "processando", done: "concluído", error: "erro", canceled: "cancelado",
   uploading: "enviando", processing: "TikTok processando", published: "publicado", inbox: "nos rascunhos" };
 const badge = (s) => s ? `<span class="badge ${esc(s)}">${esc(STATUS[s] || s)}</span>` : "";
@@ -127,7 +129,10 @@ function empty(icon, title, text, actions = "") {
   return `<div class="empty">${ic(icon)}<b>${title}</b><div>${text}</div>${actions ? `<div class="row">${actions}</div>` : ""}</div>`;
 }
 const createButtons = () => `<a class="btn small" href="#/youtube">${ic("scissors", "sm")} Cortes do YouTube</a>
+  <a class="btn small" href="#/anim2d">${ic("palette", "sm")} Animação 2D</a>
   <a class="btn small" href="#/prompt3d">${ic("cube", "sm")} Vídeo 3D</a>`;
+const pref = (k, d) => { try { const v = localStorage.getItem("postop." + k); return v === null ? d : v; } catch { return d; } };
+const savePref = (k, v) => { try { localStorage.setItem("postop." + k, v); } catch { /* sem armazenamento */ } };
 
 function pageHead(icon, title, text, flow = []) {
   return `<div class="page-head"><div class="head-icon">${ic(icon)}</div><div class="grow"><h1>${title}</h1><p>${text}</p>
@@ -145,11 +150,11 @@ function setRangeFill(r) { r.style.setProperty("--p", `${((r.value - r.min) * 10
 /* ------------------------------------------------------------ casca: menu, saúde, fila */
 const NAV = [
   ["", [["/", "home", "Início"]]],
-  ["Criar", [["/youtube", "scissors", "Cortes do YouTube"], ["/prompt3d", "cube", "Vídeo 3D"]]],
+  ["Criar", [["/youtube", "scissors", "Cortes do YouTube"], ["/anim2d", "palette", "Animação 2D"], ["/prompt3d", "cube", "Vídeo 3D"]]],
   ["Biblioteca", [["/videos", "film", "Vídeos"], ["/jobs", "pulse", "Processamentos"]]],
   ["Ajustes", [["/configuracoes", "sliders", "Configurações"], ["/tiktok-guia", "book", "Conectar TikTok"]]],
 ];
-const TABBAR = [["/", "home", "Início"], ["/youtube", "scissors", "Cortes"], ["/prompt3d", "cube", "3D"], ["/videos", "film", "Vídeos"], ["/jobs", "pulse", "Fila"]];
+const TABBAR = [["/youtube", "scissors", "Cortes"], ["/anim2d", "palette", "2D"], ["/prompt3d", "cube", "3D"], ["/videos", "film", "Vídeos"], ["/jobs", "pulse", "Fila"]];
 function renderShell() {
   const count = (r) => r === "/jobs" ? `<span class="count hidden" data-count></span>` : "";
   $("#nav").innerHTML = NAV.map(([sec, items]) => (sec ? `<div class="nav-label">${sec}</div>` : "") +
@@ -183,7 +188,10 @@ function renderHealth() {
 }
 async function loadThemes() {
   if (!state.themes) {
-    try { const t = await api("/api/themes"); state.themes = t.themes; state.styles = t.styles; state.voices = t.voices || []; } catch { state.themes = []; state.styles = []; state.voices = []; }
+    try {
+      const t = await api("/api/themes");
+      state.themes = t.themes; state.styles = t.styles; state.styles2d = t.styles2d || []; state.voices = t.voices || [];
+    } catch { state.themes = []; state.styles = []; state.styles2d = []; state.voices = []; }
   }
   return state.themes;
 }
@@ -216,7 +224,7 @@ $("#logout").addEventListener("click", logout);
 
 /* ------------------------------------------------------------ rotas */
 const routes = {
-  "/": viewDashboard, "/youtube": viewYoutube, "/prompt3d": viewPrompt3d, "/videos": viewVideos,
+  "/": viewDashboard, "/youtube": viewYoutube, "/anim2d": (q) => viewStory("2d", q), "/prompt3d": (q) => viewStory("3d", q), "/videos": viewVideos,
   "/jobs": viewJobs, "/configuracoes": viewSettings, "/tiktok-guia": viewGuide,
 };
 function parseHash() {
@@ -283,26 +291,33 @@ async function viewDashboard() {
       <a class="path" href="#/youtube">
         <div class="head-icon">${ic("scissors", "lg")}</div>
         <h2>Cortes do YouTube</h2>
-        <p>Cole um link e receba os melhores trechos em vídeos verticais, com legenda animada e enquadramento no rosto.</p>
-        <div class="flow"><span>Link</span><span class="sep">›</span><span>Transcrição grátis</span><span class="sep">›</span><span>IA escolhe os trechos</span><span class="sep">›</span><span>Cortes 9:16</span></div>
+        <p>Cole um link e escolha: a IA acha os melhores momentos, você diz os trechos, ou o vídeo vira Parte 1, 2, 3... Tudo vertical, com legenda.</p>
+        <div class="flow"><span>Link</span><span class="sep">›</span><span>Trecho</span><span class="sep">›</span><span>Cortes 9:16</span></div>
         <span class="go">Criar cortes ${ic("arrow", "sm")}</span>
+      </a>
+      <a class="path violet" href="#/anim2d">
+        <div class="head-icon">${ic("palette", "lg")}</div>
+        <h2>Animação 2D</h2>
+        <p>Histórias animadas no estilo de papel recortado, como os vídeos de curiosidades e de histórias bíblicas, com narração e legenda.</p>
+        <div class="flow"><span>Tema</span><span class="sep">›</span><span>Roteiro</span><span class="sep">›</span><span>Personagens</span><span class="sep">›</span><span>Vídeo</span></div>
+        <span class="go">Criar animação ${ic("arrow", "sm")}</span>
       </a>
       <a class="path cyan" href="#/prompt3d">
         <div class="head-icon">${ic("cube", "lg")}</div>
         <h2>Vídeo 3D por tema</h2>
         <p>Escolha um tema como terror ou curiosidades. A IA escreve o roteiro e o PostOp monta e anima as cenas em 3D.</p>
-        <div class="flow"><span>Tema</span><span class="sep">›</span><span>Roteiro</span><span class="sep">›</span><span>Cenas 3D</span><span class="sep">›</span><span>Animação</span></div>
+        <div class="flow"><span>Tema</span><span class="sep">›</span><span>Roteiro</span><span class="sep">›</span><span>Cenas 3D</span><span class="sep">›</span><span>Vídeo</span></div>
         <span class="go">Criar vídeo 3D ${ic("arrow", "sm")}</span>
       </a>
     </div>
     <div class="section"><div class="section-head"><h2>Comece por um tema</h2>
-      <a class="btn ghost small" href="#/prompt3d">Ver todos ${ic("arrow", "sm")}</a></div><div class="chips" id="theme-chips"></div></div>
+      <a class="btn ghost small" href="#/anim2d">Ver todos ${ic("arrow", "sm")}</a></div><div class="chips" id="theme-chips"></div></div>
     <div class="section"><div class="grid cols-4" id="stats"></div></div>
     <div class="section card"><div class="section-head"><h2>Últimos processamentos</h2>
       <a class="btn ghost small" href="#/jobs">Ver todos ${ic("arrow", "sm")}</a></div><div id="recent"></div></div>`;
   loadThemes().then((themes) => {
     const box = $("#theme-chips");
-    if (box) box.innerHTML = themes.map((t) => `<a class="chip" href="#/prompt3d?tema=${esc(t.key)}">${ic(t.icon, "sm")}${esc(t.name)}</a>`).join("");
+    if (box) box.innerHTML = themes.map((t) => `<a class="chip" href="#/${(t.modes || []).includes("2d") ? "anim2d" : "prompt3d"}?tema=${esc(t.key)}">${ic(t.icon, "sm")}${esc(t.name)}</a>`).join("");
   });
   loadSettings().then((s) => {
     const key = setting("openrouter_api_key")?.is_set;
@@ -310,7 +325,7 @@ async function viewDashboard() {
     if (key && tk) return;
     const item = (ok, label, href, tab) => `<a class="chip ${ok ? "active" : ""}" href="${href}" data-tab="${tab}">${ic(ok ? "check" : "plus", "sm")}${label}</a>`;
     $("#setup").innerHTML = `<div class="card setup"><div class="grow"><h2 style="margin:0 0 2px">Primeiros passos</h2>
-      <div class="muted small">${[key, tk].filter(Boolean).length} de 2 concluídos. A chave da IA escreve os roteiros e escolhe os cortes; o TikTok é só para postar.</div></div>
+      <div class="muted small">${[key, tk].filter(Boolean).length} de 2 concluídos. A chave da IA escreve os roteiros e escolhe os cortes (cortes manuais e por partes não usam IA); o TikTok é só para postar.</div></div>
       <div class="steps-mini">${item(key, "Chave do OpenRouter", "#/configuracoes", "openrouter")}${item(tk, "Conectar o TikTok", "#/tiktok-guia", "tiktok")}</div></div>`;
   }).catch(() => {});
   every(5000, async () => {
@@ -397,12 +412,24 @@ function youtubeId(url) {
   const m = String(url).trim().match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([\w-]{6,})/i);
   return m ? m[1] : "";
 }
+const fmtTime = (s) => {
+  s = Math.max(0, Math.round(Number(s || 0)));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+};
 const CLIP_PRESETS = [["curto", "Curtos", 15, 30], ["medio", "Médios", 20, 60], ["longo", "Longos", 60, 90]];
 const REFRAME = { auto: "enquadramento automático", face: "recorte no rosto", crop: "recorte no centro", blur: "vídeo inteiro com fundo desfocado" };
+const CUT_MODES = [
+  ["ai", "sparkle", "A IA escolhe", "Acha os momentos com mais potencial. Gasta pouco: a IA só lê o texto do trecho."],
+  ["manual", "edit", "Eu digo os trechos", "Você escreve o início e o fim de cada corte."],
+  ["parts", "layers", "Dividir em partes", "O vídeo vira Parte 1, Parte 2, Parte 3... do tamanho que você escolher."],
+];
+const PART_PRESETS = [[30, "30 s"], [60, "1 min"], [90, "1:30"], [120, "2 min"], [180, "3 min"]];
 function viewYoutube() {
+  const savedMode = ["ai", "manual", "parts"].includes(pref("ytmode", "ai")) ? pref("ytmode", "ai") : "ai";
   $("#view").innerHTML = pageHead("scissors", "Cortes do YouTube",
-    "Cole o link de um vídeo. O PostOp transcreve o áudio de graça no servidor, a IA escolhe os trechos com mais potencial e entrega cortes verticais prontos.",
-    ["Baixar", "Transcrever (Whisper, grátis)", "Escolher trechos", "Cortar 9:16 com legenda"]) + `
+    "Cole o link, diga que parte do vídeo usar e como cortar. Só o trecho escolhido é baixado, e a transcrição é feita no próprio servidor, sem custo.",
+    ["Link", "Trecho", "Cortes", "Vertical 9:16 com legenda"]) + `
     <form id="f" autocomplete="off">
       <div class="card">
         <div class="step-title"><span class="n">1</span>Link do vídeo</div>
@@ -411,7 +438,20 @@ function viewYoutube() {
         <div id="yt"></div>
       </div>
       <div class="card">
-        <div class="step-title"><span class="n">2</span>Cortes</div>
+        <div class="step-title"><span class="n">2</span>Como cortar</div>
+        ${optionCards("mode", CUT_MODES.map(([v, i, t, d]) => [v, i, t, d, v === "ai" ? `<span class="tag">poucos tokens</span>` : `<span class="tag free">sem IA</span>`]), savedMode)}
+      </div>
+      <div class="card" data-for="ai parts">
+        <div class="step-title"><span class="n">3</span>Que parte do vídeo?</div>
+        ${radioChips("span", [["all", "Vídeo inteiro"], ["range", "Só um trecho"]], "all")}
+        <div class="row" id="span-box" style="margin-top:14px">
+          <label>Começa em<input name="start" placeholder="ex.: 12:30" aria-label="Início do trecho"></label>
+          <label>Termina em<input name="end" placeholder="ex.: 25:00 (vazio = até o fim)" aria-label="Fim do trecho"></label>
+        </div>
+        <p class="help" id="span-msg"></p>
+      </div>
+      <div class="card" data-for="ai">
+        <div class="step-title"><span class="n">4</span>Cortes da IA</div>
         <div class="range-row">
           <div class="range"><label><span class="top">Quantidade de cortes<output id="o-clips">5</output></span>
             <input type="range" name="max_clips" min="1" max="20" value="5"></label></div>
@@ -425,8 +465,23 @@ function viewYoutube() {
         <label><span>Instruções para a IA <span class="help">(opcional)</span></span>
           <textarea name="instructions" rows="2" style="min-height:70px" placeholder="Ex.: priorize momentos engraçados; evite a parte do patrocínio"></textarea></label>
       </div>
+      <div class="card" data-for="manual">
+        <div class="step-title"><span class="n">3</span>Seus trechos</div>
+        <label><span>Um corte por linha: início e fim e, se quiser, um título</span>
+          <textarea name="clips" rows="5" spellcheck="false" placeholder="1:20-2:05 O melhor momento&#10;10:00 a 10:45&#10;1:02:10-1:03:00 | Final"></textarea>
+          <span class="help">Os tempos são do vídeo no YouTube (minutos:segundos ou horas:minutos:segundos). Até 30 cortes, de 3 s a 10 min cada.</span></label>
+        <div id="cuts"></div>
+      </div>
+      <div class="card" data-for="parts">
+        <div class="step-title"><span class="n">4</span>Partes</div>
+        <div class="range"><label><span class="top">Duração de cada parte<output id="o-part"></output></span>
+          <input type="range" name="part_seconds" min="15" max="600" step="15" value="60"></label></div>
+        <div class="chips" id="part-presets" style="margin:4px 0 14px">${PART_PRESETS.map(([s, l]) => `<button type="button" class="chip" data-part="${s}">${l}</button>`).join("")}</div>
+        ${toggle("part_label", "Escrever “PARTE 1, 2, 3...” no vídeo", "Aparece no topo do vídeo. O título de cada post também leva o número da parte.", true)}
+        <p class="help" id="parts-est" style="margin-top:10px"></p>
+      </div>
       <div class="card">
-        <div class="step-title"><span class="n">3</span>Formato vertical</div>
+        <div class="step-title"><span class="n">5</span>Formato vertical</div>
         ${optionCards("reframe", [
           ["auto", "sparkle", "Automático", "Segue o rosto. Sem rosto, usa fundo desfocado."],
           ["face", "user", "Rosto", "Recorta sempre em quem está falando."],
@@ -442,64 +497,131 @@ function viewYoutube() {
       <div class="actionbar"><div class="sum" id="sum"></div><button class="btn primary lg" type="submit">${ic("scissors", "sm")} Gerar cortes</button></div>
     </form>`;
   const form = $("#f");
-  const range = $("[name=max_clips]", form);
-  const update = () => {
+  const range = form.max_clips, partRange = form.part_seconds;
+  let check = { error: "", clips: [], parts: null }, timer = 0, seq = 0;
+  const values = () => {
     const f = new FormData(form);
-    $("#o-clips").textContent = range.value; setRangeFill(range);
+    const mode = f.get("mode"), ranged = f.get("span") === "range" && mode !== "manual";
+    return { f, mode, ranged, start: ranged ? f.get("start").trim() : "", end: ranged ? f.get("end").trim() : "" };
+  };
+  const draw = () => {
+    const { f, mode, ranged, start, end } = values();
+    const part = Number(partRange.value);
+    $("#o-clips").textContent = range.value;
+    $("#o-part").textContent = part < 60 ? `${part} s` : fmtTime(part);
+    $$("input[type=range]", form).forEach(setRangeFill);
+    $$("[data-for]", form).forEach((el) => { el.hidden = !el.dataset.for.split(" ").includes(mode); });
+    $$(".step-title .n", form).filter((n) => !n.closest("[hidden]")).forEach((n, i) => { n.textContent = i + 1; });
+    $("#span-box").hidden = !ranged;
     const min = Number(f.get("min_seconds")), max = Number(f.get("max_seconds"));
     $$("#presets .chip").forEach((c) => c.setAttribute("aria-pressed", String(Number(c.dataset.min) === min && Number(c.dataset.max) === max)));
-    $("#sum").innerHTML = `<b>até ${range.value} corte${range.value === "1" ? "" : "s"}</b> de ${min}–${max} s · ${REFRAME[f.get("reframe")] || ""}`;
+    $$("#part-presets .chip").forEach((c) => c.setAttribute("aria-pressed", String(Number(c.dataset.part) === part)));
+    const err = check.error;
+    const spanText = ranged && (start || end) ? `trecho ${start || "0:00"}–${end || "fim"}` : "vídeo inteiro";
+    $("#span-msg").innerHTML = err && mode !== "manual" ? `<span class="warn-text">${ic("alert", "sm")} ${esc(err)}</span>`
+      : ranged ? "Minutos:segundos (12:30) ou horas:minutos:segundos (1:02:03). Só esse pedaço é baixado e transcrito, o que deixa tudo bem mais rápido."
+        : "O vídeo inteiro é baixado e transcrito. Para vídeos longos, escolher um trecho é bem mais rápido.";
+    $("#parts-est").textContent = check.parts ? `≈ ${check.parts} parte${check.parts === 1 ? "" : "s"} de ${fmtTime(part)}. Os cortes caem no fim de uma frase, e a última parte se ajusta ao fim do trecho.`
+      : "A quantidade de partes depende da duração do vídeo (no máximo 60 partes).";
+    $("#cuts").innerHTML = mode !== "manual" ? "" : err ? `<div class="callout">${ic("alert")}<div>${esc(err)}</div></div>`
+      : check.clips.length ? `<div class="cuts">${check.clips.map((c, i) => `<div class="cut"><span class="num">${i + 1}</span>
+          <span class="tm">${fmtTime(c.start)} → ${fmtTime(c.end)}</span><span class="muted">${fmtTime(c.end - c.start)}</span>
+          <span class="ttl">${esc(c.title || "")}</span></div>`).join("")}</div>` : "";
+    const how = { ai: `<b>até ${range.value} corte${range.value === "1" ? "" : "s"}</b> de ${min}–${max} s · ${spanText}`,
+      manual: `<b>${check.clips.length || "nenhum"} corte${check.clips.length === 1 ? "" : "s"}</b> · sem IA`,
+      parts: `<b>${check.parts ? `≈ ${check.parts} partes` : "partes"}</b> de ${fmtTime(part)} · ${spanText} · sem IA` }[mode];
+    $("#sum").innerHTML = `${how} · ${REFRAME[f.get("reframe")] || ""}`;
     const url = f.get("url").trim(), id = youtubeId(url);
     $("#yt").innerHTML = id ? `<div class="yt-preview"><img src="https://i.ytimg.com/vi/${esc(id)}/mqdefault.jpg" alt="">
         <div class="t"><b>${ic("check")}Vídeo do YouTube</b><span class="muted">ID ${esc(id)}</span></div></div>`
       : url && url.length > 8 ? `<p class="help" style="margin:10px 0 0;color:var(--warn)">Esse link não parece ser do YouTube.</p>` : "";
   };
-  form.addEventListener("input", update);
-  $$("#presets .chip").forEach((c) => c.addEventListener("click", () => {
-    form.min_seconds.value = c.dataset.min; form.max_seconds.value = c.dataset.max; update();
-  }));
-  $("#paste").addEventListener("click", async () => {
-    try { form.url.value = (await navigator.clipboard.readText()).trim(); update(); } catch { toast("O navegador não deixou colar. Use Ctrl+V no campo.", true); form.url.focus(); }
+  // a leitura dos tempos é feita pelo servidor, com a mesma regra usada no corte
+  const recheck = () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const { f, mode, start, end } = values();
+      const n = ++seq;
+      try {
+        const r = await api("/api/youtube/preview", { method: "POST", body: {
+          mode, start, end, clips: mode === "manual" ? f.get("clips") : "", part_seconds: Number(partRange.value) } });
+        if (n === seq) { check = r; draw(); }
+      } catch { /* sem prévia: o servidor valida ao enviar */ }
+    }, 300);
+  };
+  form.addEventListener("input", (e) => {
+    if (e.target.name === "mode") savePref("ytmode", e.target.value);
+    draw();
+    if (["mode", "span", "start", "end", "clips", "part_seconds"].includes(e.target.name)) recheck();
   });
-  update();
+  $$("#presets .chip").forEach((c) => c.addEventListener("click", () => {
+    form.min_seconds.value = c.dataset.min; form.max_seconds.value = c.dataset.max; draw();
+  }));
+  $$("#part-presets .chip").forEach((c) => c.addEventListener("click", () => { partRange.value = c.dataset.part; draw(); recheck(); }));
+  $("#paste").addEventListener("click", async () => {
+    try { form.url.value = (await navigator.clipboard.readText()).trim(); draw(); } catch { toast("O navegador não deixou colar. Use Ctrl+V no campo.", true); form.url.focus(); }
+  });
+  draw();
+  recheck();
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const f = new FormData(form);
+    const { f, mode, start, end } = values();
     const body = {
-      url: f.get("url").trim(), max_clips: Number(f.get("max_clips")), min_seconds: Number(f.get("min_seconds")),
-      max_seconds: Number(f.get("max_seconds")), reframe: f.get("reframe"), subtitle_style: f.get("subtitle_style") || "",
-      language: f.get("language").trim(), instructions: f.get("instructions"), ...postValues(f),
+      url: f.get("url").trim(), mode, start, end, clips: mode === "manual" ? f.get("clips") : "",
+      part_seconds: Number(partRange.value), part_label: f.get("part_label") === "on",
+      max_clips: Number(f.get("max_clips")), min_seconds: Number(f.get("min_seconds")), max_seconds: Number(f.get("max_seconds")),
+      reframe: f.get("reframe"), subtitle_style: f.get("subtitle_style") || "", language: f.get("language").trim(),
+      instructions: mode === "ai" ? f.get("instructions") : "", ...postValues(f),
     };
-    if (body.min_seconds >= body.max_seconds) return toast("A duração mínima precisa ser menor que a máxima.", true);
+    if (mode === "ai" && body.min_seconds >= body.max_seconds) return toast("A duração mínima precisa ser menor que a máxima.", true);
+    if (mode === "manual" && !body.clips.trim()) { form.clips.focus(); return toast("Escreva pelo menos um trecho, ex.: 1:20-2:05", true); }
     const btn = $("button[type=submit]", form); btn.disabled = true;
     try {
       const j = await api("/api/jobs/youtube", { method: "POST", body });
-      toast(`Cortes na fila (#${j.id})`); location.hash = `#/jobs?novo=${j.id}`;
+      toast(`${{ ai: "Cortes", manual: "Trechos", parts: "Partes" }[mode]} na fila (#${j.id})`); location.hash = `#/jobs?novo=${j.id}`;
     } catch (err) { toast(err.message, true); } finally { btn.disabled = false; }
   });
 }
 
-/* ------------------------------------------------------------ vídeo 3D por tema */
+/* ------------------------------------------------------------ histórias por tema: animação 2D e vídeo 3D */
 const THEME_HUE = { "": 220, curiosidades: 45, terror: 355, misterios: 270, folclore: 140, mitologia: 30, historia: 20, espaco: 230,
-  animais: 95, e_se: 185, ciencia: 165, fabula: 320, motivacional: 10, satisfatorio: 290, humor: 55 };
+  animais: 95, e_se: 185, ciencia: 165, fabula: 320, motivacional: 10, satisfatorio: 290, humor: 55, biblia: 38 };
 const STYLE_SWATCH = { pixar3d: "#7cc4ff,#ffb86b", realista3d: "#9aa4b2,#3b4252", documental: "#8fbf7f,#3d5a3a", sombrio: "#2b2f3a,#0b0c10",
-  fantasia: "#c08bff,#ffcf6b", anime3d: "#ff7eb6,#7aa2ff", lowpoly: "#ffd6a5,#a0c4ff", clay: "#ffadad,#fdffb6", neon: "#ff2bd6,#2be4ff" };
-async function viewPrompt3d(query) {
-  const [themes] = await Promise.all([loadThemes(), state.settings ? null : loadSettings().catch(() => null)]);
-  const styles = state.styles?.length ? state.styles : [{ key: "pixar3d", name: "Animação 3D" }];
+  fantasia: "#c08bff,#ffcf6b", anime3d: "#ff7eb6,#7aa2ff", lowpoly: "#ffd6a5,#a0c4ff", clay: "#ffadad,#fdffb6", neon: "#ff2bd6,#2be4ff",
+  papel: "#f6e7c8,#e07a5f", flat: "#7cc4ff,#ffd166" };
+const STORY = {
+  "2d": {
+    icon: "palette", title: "Animação 2D", endpoint: "/api/jobs/anim2d", defStyle: "papel", minSecs: 3,
+    text: "Histórias animadas no estilo dos vídeos de curiosidades e de histórias bíblicas do TikTok: personagens desenhados, cenários, narração e legenda palavra por palavra. Tudo é desenhado e animado no próprio servidor.",
+    flow: ["Tema", "Roteiro (IA)", "Personagens e cenários", "Narração e legenda", "Vídeo 9:16"],
+    engine: "Os personagens, cenários, objetos e efeitos são desenhados pelo motor 2D do PostOp, sem custo de imagem.",
+    placeholder: "Ex.: Davi e Golias contado para crianças, com o gigante caindo no final",
+    submit: "Gerar animação", queued: "Animação na fila", styles: () => state.styles2d,
+  },
+  "3d": {
+    icon: "cube", title: "Vídeo 3D por tema", endpoint: "/api/jobs/prompt3d", defStyle: "pixar3d", minSecs: 2,
+    text: "Escolha um tema e a ideia já vem pronta. A IA escreve o roteiro e o PostOp monta, anima e narra cada cena em 3D no próprio servidor: cenários, pessoas, animais, objetos, voz e efeitos sonoros.",
+    flow: ["Tema", "Roteiro (IA)", "Cenas 3D", "Voz e som", "Vídeo 9:16"],
+    engine: "As cenas são montadas e animadas pelo motor 3D do PostOp, sem custo de imagem.",
+    placeholder: "Ex.: um gato astronauta descobrindo um planeta feito de doces",
+    submit: "Gerar vídeo 3D", queued: "Vídeo 3D na fila", styles: () => state.styles,
+  },
+};
+async function viewStory(mode, query) {
+  const cfg = STORY[mode];
+  const [allThemes] = await Promise.all([loadThemes(), state.settings ? null : loadSettings().catch(() => null)]);
+  const themes = allThemes.filter((t) => (t.modes || ["3d", "2d"]).includes(mode));
+  const styles = cfg.styles()?.length ? cfg.styles() : [{ key: cfg.defStyle, name: cfg.title }];
   const first = query.get("tema") && themes.find((t) => t.key === query.get("tema"));
   const cards = [{ key: "", name: "Ideia livre", tagline: "Descreva do seu jeito, sem regras de gênero", icon: "free" }, ...themes];
   const hasKey = Boolean(setting("openrouter_api_key")?.is_set);
   const textModel = setting("text_model")?.value || "";
   const voices = state.voices?.length ? state.voices : [{ key: "pf_dora", name: "Dora (feminina)" }];
-  const pref = (k, d) => { try { const v = localStorage.getItem("postop." + k); return v === null ? d : v; } catch { return d; } };
-  const savePref = (k, v) => { try { localStorage.setItem("postop." + k, v); } catch { /* sem armazenamento */ } };
   const savedNarration = pref("narration", "1") === "1";
   const savedSfx = pref("sfx", "1") === "1";
   const savedVoice = voices.some((v) => v.key === pref("voice", "")) ? pref("voice", "") : voices[0].key;
-  $("#view").innerHTML = pageHead("cube", "Vídeo 3D por tema",
-    "Escolha um tema e a ideia já vem pronta. A IA escreve o roteiro e o PostOp monta, anima e narra cada cena em 3D no próprio servidor: cenários, pessoas, animais, objetos, voz e efeitos sonoros.",
-    ["Tema", "Roteiro (IA)", "Cenas 3D", "Voz e som", "Vídeo 9:16"]) + `
+  const savedStyle = styles.some((s) => s.key === pref("style" + mode, "")) ? pref("style" + mode, "") : cfg.defStyle;
+  $("#view").innerHTML = pageHead(cfg.icon, cfg.title, cfg.text, cfg.flow) + `
     <form id="f" autocomplete="off">
       <input type="hidden" name="theme" value="">
       <div class="card">
@@ -507,28 +629,28 @@ async function viewPrompt3d(query) {
         <div class="themes" id="themes">${cards.map((t) => `<button type="button" class="theme" data-theme="${esc(t.key)}" aria-pressed="false" style="--h:${THEME_HUE[t.key] ?? 220}">
           <span class="ok">${ic("check")}</span><span class="ti">${ic(t.icon)}</span>
           <span><b>${esc(t.name)}</b><br><span class="d">${esc(t.tagline)}</span></span>
-          ${t.key ? `<span class="meta">${esc(t.style_name)} · ${t.scenes} cenas</span>` : ""}</button>`).join("")}</div>
+          ${t.key ? `<span class="meta">${mode === "3d" ? `${esc(t.style_name)} · ` : ""}${t.scenes} cenas</span>` : ""}</button>`).join("")}</div>
       </div>
       <div class="card">
         <div class="step-title"><span class="n">2</span>Ideia do vídeo</div>
         <div id="theme-note"></div>
         <label style="margin-bottom:12px"><textarea name="prompt" required minlength="3" aria-label="Ideia do vídeo"
-          placeholder="Ex.: um gato astronauta descobrindo um planeta feito de doces"></textarea></label>
+          placeholder="${esc(cfg.placeholder)}"></textarea></label>
         <div id="ideas"></div>
       </div>
       <div class="card">
         <div class="step-title"><span class="n">3</span>Visual e duração</div>
         <div class="field-label" style="margin-bottom:8px">Estilo visual</div>
-        ${radioChips("style", styles.map((s) => [s.key, esc(s.name), `<span class="sw" style="background:linear-gradient(135deg,${STYLE_SWATCH[s.key] || "#888,#444"})"></span>`]), "pixar3d")}
+        ${radioChips("style", styles.map((s) => [s.key, esc(s.name), `<span class="sw" style="background:linear-gradient(135deg,${STYLE_SWATCH[s.key] || "#888,#444"})"></span>`]), savedStyle)}
         <div class="range-row" style="margin-top:22px">
           <div class="range"><label><span class="top">Cenas<output id="o-scenes"></output></span><input type="range" name="scenes" min="1" max="15" step="1" value="6"></label></div>
-          <div class="range"><label><span class="top">Segundos por cena<output id="o-secs"></output></span><input type="range" name="seconds_per_scene" min="2" max="10" step="0.5" value="3.5"></label></div>
+          <div class="range"><label><span class="top">Segundos por cena<output id="o-secs"></output></span><input type="range" name="seconds_per_scene" min="2" max="10" step="0.5" value="${mode === "2d" ? 4 : 3.5}"></label></div>
         </div>
         <p class="help" id="engine-note" style="margin-top:14px"></p>
       </div>
       <div class="card">
         <div class="step-title"><span class="n">4</span>Som e texto</div>
-        ${toggle("narration", "Narração", "Voz em português gerada no próprio servidor, sem custo. Na primeira vez o sistema baixa a voz (cerca de 350 MB).", savedNarration)}
+        ${toggle("narration", "Narração", "Voz em português gerada no próprio servidor, sem custo. Na primeira vez o sistema baixa a voz (cerca de 350 MB). Com narração, cada cena dura o tempo da fala.", savedNarration)}
         <div id="voice-box" style="margin:4px 0 12px">${radioChips("voice", voices.map((v) => [v.key, esc(v.name)]), savedVoice)}</div>
         ${toggle("sfx", "Efeitos sonoros e ambiente", "Passos, quedas, explosões, pássaros, chuva, ondas... gerados por código e sincronizados com cada cena.", savedSfx)}
         ${toggle("captions", "Legenda na tela", "Com narração, a legenda acompanha a fala palavra por palavra.", true)}
@@ -536,14 +658,14 @@ async function viewPrompt3d(query) {
         <input type="file" name="music" accept="audio/*" aria-label="Música de fundo">
       </div>
       ${postFields()}
-      <div class="actionbar"><div class="sum" id="sum"></div><button class="btn primary lg" type="submit">${ic("sparkle", "sm")} Gerar vídeo</button></div>
+      <div class="actionbar"><div class="sum" id="sum"></div><button class="btn primary lg" type="submit">${ic("sparkle", "sm")} ${cfg.submit}</button></div>
     </form>`;
   const form = $("#f");
   const ta = form.prompt;
   let lastIdea = "";
-  $("#engine-note").innerHTML = `${ic("cube", "sm")} As cenas são desenhadas e animadas pelo motor 3D do PostOp, sem custo de imagem. ` +
-    (hasKey ? `Só o roteiro usa IA (<code>${esc(textModel || "modelo das Configurações")}</code>, centavos por vídeo).`
-      : `Sem chave do OpenRouter, o roteiro é montado automaticamente a partir da ideia. <a href="#/configuracoes">Configurar a IA</a> para roteiros melhores.`);
+  $("#engine-note").innerHTML = `${ic(cfg.icon, "sm")} ${cfg.engine} ` +
+    (hasKey ? `Só o roteiro usa IA: uma chamada curta por vídeo (<code>${esc(textModel || "modelo das Configurações")}</code>, centavos).`
+      : `Sem chave do OpenRouter, o roteiro é montado automaticamente a partir da ideia. <a href="#/configuracoes" data-tab="openrouter">Configurar a IA</a> para roteiros melhores.`);
 
   const update = () => {
     const f = new FormData(form);
@@ -570,9 +692,12 @@ async function viewPrompt3d(query) {
     form.theme.value = theme ? theme.key : "";
     $$("#themes .theme").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.theme === form.theme.value)));
     if (theme) {
-      const styleInput = $(`input[name=style][value="${theme.style}"]`, form);
-      if (styleInput) styleInput.checked = true;
-      form.scenes.value = theme.scenes; form.seconds_per_scene.value = theme.seconds;
+      if (mode === "3d") {
+        const styleInput = $(`input[name=style][value="${theme.style}"]`, form);
+        if (styleInput) styleInput.checked = true;
+      }
+      form.scenes.value = theme.scenes;
+      form.seconds_per_scene.value = mode === "2d" ? Math.max(4, theme.seconds) : theme.seconds;
       const edited = ta.value.trim() && ta.value !== lastIdea;
       if (fill && !edited) { ta.value = theme.ideas[0]; lastIdea = ta.value; }
       else if (fill && edited) toast("Tema aplicado. Sua ideia foi mantida; toque numa sugestão para trocar.");
@@ -603,6 +728,7 @@ async function viewPrompt3d(query) {
     if (e.target === ta) $$("#ideas .chip").forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.idea === ta.value)));
     if (e.target.name === "narration" || e.target.name === "sfx") savePref(e.target.name, e.target.checked ? "1" : "0");
     if (e.target.name === "voice") savePref("voice", e.target.value);
+    if (e.target.name === "style") savePref("style" + mode, e.target.value);
     update();
   });
   pickTheme(first ? first.key : "", { fill: Boolean(first) });
@@ -623,14 +749,14 @@ async function viewPrompt3d(query) {
         seconds_per_scene: Number(f.get("seconds_per_scene")), captions: f.get("captions") === "on", music_path,
         narration: f.get("narration") === "on", voice: f.get("voice") || voices[0].key, sfx: f.get("sfx") === "on", ...postValues(f),
       };
-      const j = await api("/api/jobs/prompt3d", { method: "POST", body });
-      toast(`Vídeo na fila (#${j.id})`); location.hash = `#/jobs?novo=${j.id}`;
+      const j = await api(cfg.endpoint, { method: "POST", body });
+      toast(`${cfg.queued} (#${j.id})`); location.hash = `#/jobs?novo=${j.id}`;
     } catch (err) { toast(err.message, true); } finally { btn.disabled = false; }
   });
 }
 
 /* ------------------------------------------------------------ vídeos */
-const VIDEO_FILTERS = [["all", "Todos"], ["youtube", "Cortes"], ["prompt3d", "3D"], ["posted", "Postados"], ["pending", "Não postados"]];
+const VIDEO_FILTERS = [["all", "Todos"], ["youtube", "Cortes"], ["anim2d", "2D"], ["prompt3d", "3D"], ["posted", "Postados"], ["pending", "Não postados"]];
 async function viewVideos(query) {
   const job = query.get("job");
   let filter = sessionStorage.getItem("vFilter") || "all";
@@ -647,17 +773,18 @@ async function viewVideos(query) {
     list._sig = sig;
     if (!vids.length) {
       list.innerHTML = `<div style="grid-column:1/-1" class="card">${state.videos.length ? empty("film", "Nenhum vídeo neste filtro", "Troque o filtro acima.")
-        : empty("film", "Nenhum vídeo ainda", "Crie o primeiro a partir de um link do YouTube ou de um tema 3D.", createButtons())}</div>`;
+        : empty("film", "Nenhum vídeo ainda", "Crie o primeiro a partir de um link do YouTube ou de um tema.", createButtons())}</div>`;
       return;
     }
     list.innerHTML = vids.map((v) => `<div class="vcard" data-id="${v.id}">
       <div class="media"><video src="${esc(v.url)}" poster="${esc(v.thumb)}" controls preload="none" playsinline></video>
-        <span class="pill">${ic(KIND_ICON[v.kind] || "film")}${v.kind === "youtube" ? "Corte" : "3D"}</span>
+        <span class="pill">${ic(KIND_ICON[v.kind] || "film")}${KIND_PILL[v.kind] || "Vídeo"}</span>
         <span class="pill right">${fmtDur(v.duration)}</span></div>
       <div class="body">
         <div class="title" title="${esc(v.title)}">${esc(v.title)}</div>
         ${v.caption || v.hashtags ? `<div class="cap">${esc(v.caption || "")} ${esc(v.hashtags || "")}</div>` : ""}
-        <div class="row" style="gap:6px;align-items:center">${v.tiktok_status ? badge(v.tiktok_status) : ""}${v.score ? `<span class="tag">nota ${Math.round(v.score)}</span>` : ""}</div>
+        <div class="row" style="gap:6px;align-items:center">${v.tiktok_status ? badge(v.tiktok_status) : ""}${v.score ? `<span class="tag">nota ${Math.round(v.score)}</span>` : ""}
+          ${v.meta?.tiktok_url ? `<a class="tag" href="${esc(v.meta.tiktok_url)}" target="_blank" rel="noopener">${ic("external", "sm")} ver no TikTok</a>` : ""}</div>
         ${v.tiktok_error ? `<div class="error small" style="margin:0">${esc(v.tiktok_error.slice(0, 180))}</div>` : ""}
         <div class="actions">
           <button type="button" class="btn small primary" data-act="video-post" data-id="${v.id}">${ic("send", "sm")} ${posted(v) ? "Repostar" : "Postar"}</button>
@@ -693,47 +820,120 @@ function editVideo(id) {
     } catch (err) { toast(err.message, true); }
   });
 }
+const TT_LINKS = {
+  music: "https://www.tiktok.com/legal/page/global/music-usage-confirmation/en",
+  branded: "https://www.tiktok.com/legal/page/global/bc-policy/en",
+};
+function postConnectModal() {
+  modal("TikTok não conectado", `<p class="muted">Conecte sua conta antes de postar. Leva uns 15 minutos na primeira vez.</p>`,
+    `<button type="button" class="btn" data-act="close">Agora não</button><a class="btn primary" href="#/tiktok-guia">${ic("book", "sm")} Ver passo a passo</a>`);
+}
+async function sendPost(id, body) {
+  await api(`/api/videos/${id}/tiktok`, { method: "POST", body });
+  closeModal();
+  toast(body.mode === "inbox" ? "Enviando para os rascunhos do app do TikTok. Termine a postagem por lá."
+    : "Enviando. O TikTok pode levar alguns minutos para processar o vídeo e mostrar no seu perfil.");
+  refreshView();
+}
+// Tela de postagem seguindo as regras de UX da Content Posting API do TikTok:
+// mostra a conta, privacidade sem valor padrão, interações desmarcadas, divulgação comercial e o aviso de consentimento.
 async function postDialog(id) {
   const v = state.videos.find((x) => x.id === id);
   const s = await loadSettings();
-  if (!s.tiktok.connected) {
-    modal("TikTok não conectado", `<p class="muted">Conecte sua conta antes de postar. Leva uns 15 minutos na primeira vez.</p>`,
-      `<button type="button" class="btn" data-act="close">Agora não</button><a class="btn primary" href="#/tiktok-guia">${ic("book", "sm")} Ver passo a passo</a>`);
+  if (!s.tiktok.connected) return postConnectModal();
+  const text = [v.caption || v.title, v.hashtags].filter(Boolean).join(" ");
+  let creator;
+  try { creator = await api("/api/tiktok/creator"); } catch (err) {
+    modal("Não deu para postar agora", `<div class="callout">${ic("alert")}<div>${esc(err.message)}</div></div>
+      <p class="muted small">Você ainda pode mandar o vídeo para os rascunhos do app do TikTok e terminar a postagem por lá.</p>`,
+      `<button type="button" class="btn" data-act="close">Fechar</button><button type="button" class="btn" id="to-inbox">${ic("send", "sm")} Mandar para os rascunhos</button>`);
+    $("#to-inbox").onclick = () => sendPost(id, { mode: "inbox", title: text }).catch((e) => toast(e.message, true));
     return;
   }
-  const val = (k) => setting(k)?.value;
-  let creator = null;
-  try { creator = await api("/api/tiktok/creator"); } catch (err) { toast("Não consegui ler o perfil do TikTok: " + err.message, true); }
-  const opts = creator?.privacy_level_options || Object.keys(PRIVACY);
-  const check = (name, label, forced) => `<label class="check"><input type="checkbox" name="${name}" ${forced ? "checked disabled" : ""}> ${label}</label>`;
-  modal("Postar no TikTok", `
-    ${creator ? `<p class="muted" style="margin-top:-6px">Conta <b style="color:var(--text)">${esc(creator.creator_nickname || creator.creator_username || "")}</b>
-      ${creator.max_video_post_duration_sec ? ` · até ${creator.max_video_post_duration_sec} s por vídeo` : ""}</p>` : ""}
-    <form id="pf">
-      <label>Texto do post<textarea name="title">${esc([v.caption || v.title, v.hashtags].filter(Boolean).join(" "))}</textarea></label>
-      <div class="row">
-        <label>Modo<select name="mode"><option value="direct" ${val("tiktok_default_mode") === "direct" ? "selected" : ""}>Publicar direto</option>
-          <option value="inbox" ${val("tiktok_default_mode") === "inbox" ? "selected" : ""}>Enviar para os rascunhos do app</option></select></label>
-        <label>Privacidade<select name="privacy">${opts.map((o) => `<option value="${esc(o)}" ${o === val("tiktok_default_privacy") ? "selected" : ""}>${esc(PRIVACY[o] || o)}</option>`).join("")}</select></label>
+  const maxDur = Number(creator.max_video_post_duration_sec || 0);
+  const tooLong = maxDur > 0 && v.duration > maxDur + 0.5;
+  const defMode = tooLong ? "inbox" : setting("tiktok_default_mode")?.value === "inbox" ? "inbox" : "direct";
+  const opts = (creator.privacy_level_options || []).filter((o) => PRIVACY[o]);
+  const who = creator.creator_nickname || creator.creator_username || s.tiktok.display_name || "sua conta";
+  const allow = (name, label, off) => `<label class="check ${off ? "off" : ""}" ${off ? 'title="Desativado nas configurações da sua conta do TikTok"' : ""}>
+    <input type="checkbox" name="${name}" ${off ? "disabled" : ""}> ${label}${off ? ` <span class="muted small">(desativado na sua conta)</span>` : ""}</label>`;
+  modal("Postar no TikTok", `<form id="pf" class="post-form">
+    <div class="post-top">
+      <video src="${esc(v.url)}" poster="${esc(v.thumb)}" muted playsinline controls preload="metadata"></video>
+      <div class="who">
+        ${creator.creator_avatar_url ? `<img src="${esc(creator.creator_avatar_url)}" alt="" referrerpolicy="no-referrer">` : `<span class="av">${ic("user")}</span>`}
+        <div><b>${esc(who)}</b>${creator.creator_username ? `<div class="muted small">@${esc(creator.creator_username)}</div>` : ""}
+          <div class="muted small">${fmtDur(v.duration)} de vídeo${maxDur ? ` · sua conta posta até ${fmtTime(maxDur)}` : ""}</div></div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
-        ${check("disable_comment", "Desativar comentários", creator?.comment_disabled)}
-        ${check("disable_duet", "Desativar dueto", creator?.duet_disabled)}
-        ${check("disable_stitch", "Desativar costura (stitch)", creator?.stitch_disabled)}</div>
-      <p class="help">Ao postar, você concorda com a <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en" target="_blank" rel="noopener">Music Usage Confirmation</a> do TikTok.
-        Apps ainda não aprovados pelo TikTok só publicam como privado.</p>
-      <div class="modal-foot"><button type="button" class="btn" data-act="close">Cancelar</button><button class="btn primary">${ic("send", "sm")} Postar</button></div></form>`);
-  $("#pf").addEventListener("submit", async (e) => {
+    </div>
+    ${tooLong ? `<div class="callout">${ic("alert")}<div>Este vídeo tem ${fmtDur(v.duration)} e a sua conta só pode publicar até ${fmtTime(maxDur)} pela API. Mande para os rascunhos ou gere um corte mais curto.</div></div>` : ""}
+    <div class="field-label" style="margin:4px 0 8px">Como postar</div>
+    ${radioChips("mode", [["direct", "Publicar no perfil"], ["inbox", "Mandar para os rascunhos do app"]], defMode)}
+    <label style="margin-top:14px"><span>Título e legenda <span class="muted small" id="tt-count"></span></span>
+      <textarea name="title" maxlength="2200" rows="4">${esc(text)}</textarea></label>
+    <div id="direct-box">
+      <label>Quem pode ver este vídeo
+        <select name="privacy" required><option value="" selected disabled>Escolha...</option>
+          ${opts.map((o) => `<option value="${esc(o)}">${esc(PRIVACY[o])}</option>`).join("")}</select></label>
+      <div class="field-label" style="margin:2px 0 8px">Permitir que os usuários</div>
+      <div class="allow">${allow("allow_comment", "Comentem", creator.comment_disabled)}${allow("allow_duet", "Façam dueto", creator.duet_disabled)}${allow("allow_stitch", "Façam costura (stitch)", creator.stitch_disabled)}</div>
+      ${toggle("disclose", "Divulgar conteúdo comercial", "Ative se o vídeo promove você, o seu negócio ou outra marca, produto ou serviço.")}
+      <div id="disclose-box" class="disclose" hidden>
+        <label class="check"><input type="checkbox" name="brand_organic"> <span><b>Sua marca</b><br><span class="muted small">Você está promovendo você mesmo ou o seu próprio negócio.</span></span></label>
+        <label class="check" id="bc-label"><input type="checkbox" name="brand_content"> <span><b>Conteúdo de marca</b><br><span class="muted small">Você está promovendo outra marca ou um terceiro (parceria paga).</span></span></label>
+        <p class="help" id="disclose-label"></p>
+      </div>
+      ${["prompt3d", "anim2d"].includes(v.kind) ? `<p class="help">${ic("sparkle", "sm")} Vai com o selo de conteúdo gerado por IA do TikTok.</p>` : ""}
+    </div>
+    <p class="help" id="inbox-note" hidden>O vídeo chega nas notificações do app do TikTok (caixa de entrada). Lá você escolhe a privacidade, edita e publica. Copie o texto acima para colar no app.</p>
+    <p class="help consent" id="consent"></p>
+    <div class="modal-foot"><button type="button" class="btn" data-act="close">Cancelar</button><button class="btn primary" id="pf-go">${ic("send", "sm")} Postar</button></div></form>`);
+  const form = $("#pf");
+  const sync = () => {
+    const f = new FormData(form);
+    const direct = f.get("mode") === "direct";
+    const disclose = f.get("disclose") === "on";
+    const organic = disclose && f.get("brand_organic") === "on";
+    const branded = disclose && f.get("brand_content") === "on";
+    const privacy = form.privacy.value;
+    $("#direct-box").hidden = !direct;
+    $("#inbox-note").hidden = direct;
+    $("#disclose-box").hidden = !disclose;
+    $("#tt-count").textContent = `${[...form.elements.title.value].length}/2200`;
+    // conteúdo de marca não pode ser "só eu" (regra do TikTok)
+    const self = $('option[value="SELF_ONLY"]', form.privacy);
+    if (self) { self.disabled = branded; self.textContent = branded ? `${PRIVACY.SELF_ONLY} · indisponível para conteúdo de marca` : PRIVACY.SELF_ONLY; }
+    if (branded && privacy === "SELF_ONLY") form.privacy.value = "";
+    const bc = form.brand_content;
+    bc.disabled = privacy === "SELF_ONLY";
+    $("#bc-label").title = bc.disabled ? "Conteúdo de marca não pode ser postado como privado (Só eu)." : "";
+    $("#bc-label").classList.toggle("off", bc.disabled);
+    $("#disclose-label").innerHTML = !disclose ? "" : branded ? `O vídeo será marcado como <b>Parceria paga</b>.`
+      : organic ? `O vídeo será marcado como <b>Conteúdo promocional</b>.` : `Escolha pelo menos uma opção para divulgar o conteúdo.`;
+    const music = `<a href="${TT_LINKS.music}" target="_blank" rel="noopener">Confirmação de Uso de Música</a>`;
+    $("#consent").innerHTML = branded && direct
+      ? `Ao postar, você concorda com a <a href="${TT_LINKS.branded}" target="_blank" rel="noopener">Política de Conteúdo de Marca</a> e a ${music} do TikTok.`
+      : `Ao postar, você concorda com a ${music} do TikTok.`;
+    const ok = direct ? Boolean(form.privacy.value) && (!disclose || organic || branded) && !tooLong : true;
+    $("#pf-go").disabled = !ok;
+    $("#pf-go").innerHTML = `${ic("send", "sm")} ${direct ? "Postar" : "Mandar para o app"}`;
+  };
+  form.addEventListener("input", sync);
+  form.addEventListener("change", sync);
+  sync();
+  form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const f = new FormData(e.target);
+    const f = new FormData(form);
+    const direct = f.get("mode") === "direct";
+    const disclose = f.get("disclose") === "on";
+    $("#pf-go").disabled = true;
     try {
-      await api(`/api/videos/${id}/tiktok`, { method: "POST", body: {
-        title: f.get("title"), mode: f.get("mode"), privacy: f.get("privacy"),
-        disable_comment: f.get("disable_comment") === "on" || Boolean(creator?.comment_disabled),
-        disable_duet: f.get("disable_duet") === "on" || Boolean(creator?.duet_disabled),
-        disable_stitch: f.get("disable_stitch") === "on" || Boolean(creator?.stitch_disabled) } });
-      closeModal(); toast("Envio para o TikTok na fila"); refreshView();
-    } catch (err) { toast(err.message, true); }
+      await sendPost(id, direct ? {
+        mode: "direct", title: f.get("title"), privacy: form.privacy.value,
+        disable_comment: f.get("allow_comment") !== "on", disable_duet: f.get("allow_duet") !== "on", disable_stitch: f.get("allow_stitch") !== "on",
+        brand_organic: disclose && f.get("brand_organic") === "on", brand_content: disclose && f.get("brand_content") === "on",
+      } : { mode: "inbox", title: f.get("title") });
+    } catch (err) { toast(err.message, true); sync(); }
   });
 }
 
@@ -774,7 +974,7 @@ function renderTab(tab) {
   let extra = "";
   if (tab === "openrouter") {
     extra = `<div class="card"><div class="section-head"><h2>Modelos recomendados</h2><span class="muted small">preços de nov/2026</span></div>
-      <p class="muted small">A IA só escreve texto (roteiros e escolha dos cortes). As cenas 3D e a transcrição (Whisper) são feitas no servidor, sem custo. Toque em "usar" para preencher o campo e depois em Salvar.</p>
+      <p class="muted small">A IA só escreve texto: o roteiro das animações (uma chamada curta por vídeo) e a escolha dos cortes. As cenas 2D e 3D, a narração e a transcrição (Whisper) são feitas no servidor, sem custo. Toque em "usar" para preencher o campo e depois em Salvar.</p>
       <table><tbody>${RECOMMENDED.map(([key, label, models]) => models.map(([id, price], i) => `<tr>
         ${i === 0 ? `<td rowspan="${models.length}" class="muted small" style="width:80px">${label}</td>` : ""}
         <td><code>${esc(id)}</code></td><td class="small muted">${esc(price)}</td>
@@ -788,8 +988,9 @@ function renderTab(tab) {
     const t = s.tiktok;
     const missing = ["video.publish", "video.upload"].filter((sc) => !(t.scope || "").split(",").includes(sc));
     extra = `<div class="card"><h2>Conta do TikTok</h2>
-      ${t.connected ? `<div class="callout ok">${ic("check")}<div>Conectado ${t.display_name ? `como <b>${esc(t.display_name)}</b>` : ""}
+      ${t.connected ? `<div class="callout ok">${ic("check")}<div>Conectado ${t.display_name ? `como <b>${esc(t.display_name)}</b>` : ""}${t.username ? ` (@${esc(t.username)})` : ""}
           <div class="small muted">Permissões: ${esc(t.scope)}</div></div></div>
+          <div class="callout">${ic("info")}<div>Enquanto o TikTok não aprovar o seu app, os posts só saem como <b>Só eu</b> e a sua conta do TikTok precisa estar <b>privada</b> na hora de postar. Até 5 contas podem postar por dia e cada conta faz uns 15 posts por dia.</div></div>
           ${missing.map((sc) => `<div class="callout">${ic("alert")}<div>Falta a permissão <b>${sc}</b>: adicione no app do TikTok Developers e clique em Reconectar.</div></div>`).join("")}
           <div class="row"><a class="btn" href="/api/tiktok/connect">${ic("retry", "sm")} Reconectar</a>
           <button type="button" class="btn danger" id="tk-off">Desconectar</button></div>`
@@ -880,7 +1081,7 @@ async function viewGuide() {
       <li><b class="st">Use o Sandbox para começar agora</b>
         Enquanto o app não é aprovado, crie um <b>Sandbox</b> (botão no topo da página do app), adicione sua conta em
         <i>Target users</i> e use as chaves do sandbox. Funciona na hora.
-        <div class="callout">${ic("info")}<div>Até o TikTok aprovar o app, os posts saem como <b>privados (Só eu)</b>. Depois é só mudar para público no app do TikTok, ou pedir a revisão (passo 10).</div></div></li>
+        <div class="callout">${ic("info")}<div>Até o TikTok aprovar o app: deixe a sua conta do TikTok <b>privada</b> (app do TikTok › Perfil › ☰ › Configurações e privacidade › Privacidade › Conta privada) e poste como <b>Só eu</b>. Para postar público direto, peça a revisão (passo 10).</div></div></li>
       <li><b class="st">Copie as chaves</b>
         Em <i>App details</i> (ou no Sandbox), copie <b>Client key</b> e <b>Client secret</b> e cole em
         <a href="#/configuracoes" data-tab="tiktok">Configurações › TikTok</a>. Clique em <b>Salvar</b>.</li>
@@ -898,8 +1099,10 @@ async function viewGuide() {
     <div class="list">
       <div class="item"><div class="kind">${ic("link")}</div><div class="body"><b>redirect_uri mismatch</b><div class="meta">O Redirect URI no TikTok tem que ser idêntico ao mostrado acima (com https e sem barra no final).</div></div></div>
       <div class="item"><div class="kind">${ic("key")}</div><div class="body"><b>scope_not_authorized</b><div class="meta">Faltou adicionar o scope no app ou reconectar depois de adicionar.</div></div></div>
-      <div class="item"><div class="kind">${ic("eye")}</div><div class="body"><b>unaudited_client_can_only_post_to_private_accounts</b><div class="meta">App ainda não aprovado: use privacidade "Só eu" ou envie para revisão.</div></div></div>
-      <div class="item"><div class="kind">${ic("clock")}</div><div class="body"><b>spam_risk_too_many_posts</b><div class="meta">O TikTok limita quantos posts por dia uma conta pode fazer pela API.</div></div></div>
+      <div class="item"><div class="kind">${ic("eye")}</div><div class="body"><b>unaudited_client_can_only_post_to_private_accounts</b><div class="meta">App ainda não aprovado: deixe a sua conta do TikTok privada e poste como "Só eu", ou envie o app para revisão.</div></div></div>
+      <div class="item"><div class="kind">${ic("clock")}</div><div class="body"><b>spam_risk_too_many_posts</b><div class="meta">O TikTok limita quantos posts por dia uma conta pode fazer pela API (cerca de 15).</div></div></div>
+      <div class="item"><div class="kind">${ic("send")}</div><div class="body"><b>spam_risk_too_many_pending_share</b><div class="meta">Já tem 5 vídeos esperando nos rascunhos do app do TikTok. Publique ou descarte alguns por lá.</div></div></div>
+      <div class="item"><div class="kind">${ic("clock")}</div><div class="body"><b>O vídeo demora para aparecer</b><div class="meta">Depois do envio, o TikTok leva alguns minutos para processar. O status muda sozinho para "publicado".</div></div></div>
     </div></div>`;
 }
 

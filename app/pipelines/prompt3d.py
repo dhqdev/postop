@@ -40,6 +40,9 @@ Regras de direção:
 - 1 a 4 grupos de atores por cena. O primeiro é o protagonista e fica no centro.
 - Mantenha o MESMO protagonista (mesmo "type" e mesma "color") em todas as cenas.
 - Escolha ações que mostrem o que o texto diz (andar, pular, empilhar blocos, foguete decolando...).
+- Cada ator faz 1 a 3 ações em sequência, com começo e fim (ex.: ["walk", "wave"]). Ações curtas (jump, wave...)
+  acontecem uma vez e o motor completa a cena com o personagem parado de forma natural. Não repita a mesma ação.
+- Dois personagens conversando: use facing "center" (um de frente para o outro).
 - Para ideias abstratas use objetos-símbolo do catálogo (lightbulb, brain, heart, coin, clock, dna,
   atom, planet, trophy, gear, book...). Para grupos de objetos use "count" e uma ação de grupo.
 - Varie a câmera entre as cenas e combine cenário, horário e clima com o clima da história.
@@ -147,7 +150,9 @@ def render_workers(n: int) -> int:
     return max(1, min(n, os.cpu_count() or 1, 3))
 
 
-def _render_parallel(ctx: Ctx, jobs: list, workers: int, seconds: float, on_done) -> list[int]:
+def _render_parallel(
+    ctx: Ctx, jobs: list, workers: int, seconds: float, on_done, fn=render_scene
+) -> list[int]:
     """Renderiza em processos separados. Devolve as cenas que sobraram (para fazer em série)."""
     n = len(jobs)
     try:
@@ -155,7 +160,7 @@ def _render_parallel(ctx: Ctx, jobs: list, workers: int, seconds: float, on_done
     except (OSError, ValueError) as exc:  # ambiente sem multiprocessamento
         ctx.log(f"Renderização em paralelo indisponível ({exc}); seguindo em série")
         return list(range(n))
-    results = {i: pool.apply_async(render_scene, jobs[i]) for i in range(n)}
+    results = {i: pool.apply_async(fn, jobs[i]) for i in range(n)}
     left = set(results)
     # folga bem maior que o normal (~3 s de render por segundo de cena em 1 núcleo)
     deadline = time.monotonic() + 120 + seconds * 20 / workers

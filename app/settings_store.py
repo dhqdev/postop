@@ -109,7 +109,8 @@ FIELDS: tuple[Field, ...] = (
         group="tiktok",
         kind="select",
         options=("SELF_ONLY", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "PUBLIC_TO_EVERYONE"),
-        help="Apps não auditados pelo TikTok só podem postar como SELF_ONLY (privado).",
+        help="Usada nos posts automáticos. Enquanto o app não for aprovado pelo TikTok, só SELF_ONLY funciona "
+        "(e a conta do TikTok precisa estar privada).",
     ),
 )
 
@@ -122,6 +123,7 @@ INTERNAL_KEYS = INTERNAL_SECRET_KEYS | {
     "tiktok_scope",
     "tiktok_display_name",
     "tiktok_avatar_url",
+    "tiktok_username",
 }
 
 FIELD_MAP = {f.key: f for f in FIELDS}

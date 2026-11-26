@@ -16,7 +16,7 @@ from . import settings_store as st
 from . import tiktok
 from .config import config
 from .db import Job, Video, init_db, session_scope
-from .pipelines import Cancelled, Ctx, prompt3d, youtube_clips
+from .pipelines import Cancelled, Ctx, anim2d, prompt3d, youtube_clips
 
 log = logging.getLogger("postop.worker")
 _stop = False
@@ -134,7 +134,9 @@ class JobRunner:
             else:
                 work.mkdir(parents=True, exist_ok=True)
                 out_dir.mkdir(parents=True, exist_ok=True)
-                pipeline = {"youtube": youtube_clips.run, "prompt3d": prompt3d.run}.get(job.kind)
+                pipeline = {"youtube": youtube_clips.run, "prompt3d": prompt3d.run, "anim2d": anim2d.run}.get(
+                    job.kind
+                )
                 if pipeline is None:
                     raise RuntimeError(f"Tipo de job desconhecido: {job.kind}")
                 outputs = pipeline(self.ctx(), work, out_dir)
@@ -204,7 +206,7 @@ class JobRunner:
                 raise RuntimeError("Vídeo não encontrado")
             path = config.media_dir / v.file_path
             title = p.get("title") or " ".join(x for x in [v.caption or v.title, v.hashtags] if x).strip()
-            is_aigc = v.kind == "prompt3d"
+            is_aigc = v.kind in ("prompt3d", "anim2d")
             vid = v.id
             # Worker reiniciou depois do envio: só acompanha o status (não posta de novo)
             resume_id = v.tiktok_publish_id if (p.get("_retries") and v.tiktok_status == "processing") else ""
@@ -228,6 +230,8 @@ class JobRunner:
                     disable_comment=bool(p.get("disable_comment")),
                     disable_duet=bool(p.get("disable_duet")),
                     disable_stitch=bool(p.get("disable_stitch")),
+                    brand_organic=bool(p.get("brand_organic")),
+                    brand_content=bool(p.get("brand_content")),
                 )
                 self._set_video(vid, tiktok_status="processing", tiktok_publish_id=publish_id)
             self.report(70, "TikTok processando o vídeo")
@@ -238,6 +242,7 @@ class JobRunner:
                 status = final.get("status", "")
                 if status == "PUBLISH_COMPLETE":
                     self._set_video(vid, tiktok_status="published")
+                    self._save_post_url(vid, final)
                     break
                 if status == "SEND_TO_USER_INBOX":
                     self._set_video(vid, tiktok_status="inbox")
@@ -260,6 +265,19 @@ class JobRunner:
         except Exception as exc:
             self._set_video(vid, tiktok_status="error", tiktok_error=str(exc)[:2000])
             raise
+
+    @staticmethod
+    def _save_post_url(vid: int, final: dict) -> None:
+        try:
+            url = tiktok.post_url(final)
+        except Exception:  # noqa: BLE001 — o link é só um extra
+            url = ""
+        if not url:
+            return
+        with session_scope() as s:
+            v = s.get(Video, vid)
+            if v:
+                v.meta = {**(v.meta or {}), "tiktok_url": url}
 
     @staticmethod
     def _set_video(vid: int, **fields) -> None:

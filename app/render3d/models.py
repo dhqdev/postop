@@ -703,12 +703,19 @@ def build_human(kind: str, color, rng: np.random.Generator) -> tuple[Model, floa
         model.mesh.s[:] = 0.4
         model.kind = "statue"
     scale = 1.0
+    head_k = 1.0
+    if style.body == "human" and not statue and model.has("head"):
+        # proporção de desenho animado: cabeça e olhos maiores
+        head_k = 1.5 if baby else 1.42 if child else 1.28
+        _scale_subtree(model, "head", head_k)
+        for eye in ("eye_l", "eye_r"):
+            if model.has(eye):
+                _scale_subtree(model, eye, 1.18)
+        model.height += 0.36 * (head_k - 1)
     if child:
         scale = 0.68
-        _scale_subtree(model, "head", 1.25)  # cabeça proporcionalmente maior
     if baby:
         scale = 0.45
-        _scale_subtree(model, "head", 1.35)
     if old:
         model.rot[model.names.index("spine")] = np.asarray((0.18, 0, 0), F32)
     return model, scale

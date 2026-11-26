@@ -13,18 +13,24 @@ from app.worker import JobRunner, claim_next
 pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg ausente")
 
 
-def _run_job(params: dict) -> tuple[dict, list[dict]]:
+def _run_job(params: dict, kind: str = "prompt3d") -> tuple[dict, list[dict]]:
     with session_scope() as s:
         s.query(Job).filter(Job.status == "queued").update({"status": "canceled"})
-        s.add(Job(kind="prompt3d", title="teste", params=params))
+        s.add(Job(kind=kind, title="teste", params=params))
     job = claim_next()
-    assert job is not None and job.kind == "prompt3d"
+    assert job is not None and job.kind == kind
     JobRunner(job).run()
     with session_scope() as s:
         j = s.get(Job, job.id)
         info = {"status": j.status, "error": j.error, "cost": j.cost_usd, "log": j.log or ""}
         vids = [
-            {"hashtags": v.hashtags, "file": v.file_path, "duration": v.duration, "meta": v.meta}
+            {
+                "hashtags": v.hashtags,
+                "file": v.file_path,
+                "duration": v.duration,
+                "meta": v.meta,
+                "kind": v.kind,
+            }
             for v in s.query(Video).filter(Video.job_id == job.id).all()
         ]
     return info, vids
@@ -122,3 +128,19 @@ def test_prompt3d_with_narration_and_sound_effects(monkeypatch):
     assert media.has_audio(path)
     # 6 palavras x 0,45 s de fala: a cena cresce além dos 2 s pedidos
     assert v["duration"] > 2.9
+
+
+def test_anim2d_job_through_the_worker():
+    init_db()
+    st.set_many({"openrouter_api_key": ""})
+    j, vids = _run_job(
+        {"prompt": "um rei e uma estátua de ouro no palácio", "scenes": 2, "seconds_per_scene": 2, "theme": "biblia",
+         "style": "papel", "narration": False, "sfx": True, "captions": True},
+        kind="anim2d",
+    )  # fmt: skip
+    assert j["status"] == "done", j["error"]
+    assert not j["cost"] and "roteiro automático" in j["log"]
+    assert len(vids) == 1 and vids[0]["kind"] == "anim2d"
+    v = vids[0]
+    assert (config.media_dir / v["file"]).exists() and v["meta"]["engine"] == "render2d"
+    assert "#biblia" in v["hashtags"]

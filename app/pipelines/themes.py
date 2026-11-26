@@ -8,7 +8,7 @@ dizem ao motor 3D qual cenário e protagonista usar quando a IA não disser.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 # Estilo visual do motor 3D (cores, luz, névoa, brilho). A descrição vai para o roteirista.
 STYLES = {
@@ -35,6 +35,13 @@ STYLE_NAMES = {
     "neon": "Neon",
 }
 
+# Estilos da animação 2D (motor `app/render2d`)
+STYLES2D = {
+    "papel": "recorte de papel com textura e sombra suave",
+    "flat": "vetor flat, cores chapadas e limpas",
+}
+STYLE2D_NAMES = {"papel": "Recorte de papel", "flat": "Vetor flat"}
+
 
 @dataclass(frozen=True)
 class Theme:
@@ -51,6 +58,10 @@ class Theme:
     words: int = 8  # máximo de palavras do texto na tela por cena
     world: str = "studio"  # cenário 3D padrão do gênero
     actor: str = "person"  # protagonista padrão (quando a IA não disser)
+    modes: tuple[str, ...] = ("3d", "2d")  # em quais modos o tema aparece
+    place2d: str = "plain"  # cenário padrão da animação 2D
+    actor2d: str = "person"  # protagonista padrão da animação 2D
+    banner2d: int = 0  # cor da faixa de título (índice da paleta do motor 2D)
 
 
 THEMES: tuple[Theme, ...] = (
@@ -400,6 +411,49 @@ THEMES: tuple[Theme, ...] = (
     ),
 )
 
+THEMES = THEMES + (
+    Theme(
+        key="biblia",
+        name="Histórias da Bíblia",
+        tagline="Passagens bíblicas contadas com carinho",
+        icon="book",
+        style="fantasia",
+        scenes=7,
+        seconds=4,
+        words=10,
+        guide=(
+            "Reconte uma passagem da Bíblia fiel ao texto, respeitosa e fácil de entender para a família toda. "
+            "Cena 1: gancho com o momento mais marcante. Depois: quem são os personagens, o conflito e como a "
+            "história se resolve. Última cena: a lição da passagem em uma frase. Ponha a referência (livro, "
+            "capítulo e versículos, ex.: 'Dn 3,16-18') no campo tag. Não invente fatos que não estão no texto."
+        ),
+        ideas=(
+            "Os três jovens na fornalha ardente (Daniel 3)",
+            "Davi enfrenta o gigante Golias",
+            "Jonas é engolido por um grande peixe",
+            "Noé constrói a arca antes do dilúvio",
+            "O nascimento de Jesus em Belém",
+        ),
+        hashtags=("#biblia", "#historiasbiblicas", "#fe"),
+        world="desert",
+        actor="king",
+    ),
+)
+
+# padrões da animação 2D por tema (cenário, protagonista, cor da faixa) e temas só de um modo
+_THEME_2D = {
+    "curiosidades": ("plain", "teacher", 0), "terror": ("graveyard", "ghost", 2), "misterios": ("night_city", "detective", 1),
+    "folclore": ("jungle", "saci", 3), "mitologia": ("temple", "knight", 4), "historia": ("ancient_city", "explorer", 4),
+    "espaco": ("space", "astronaut", 1), "animais": ("forest", "fox", 3), "e_se": ("plain", "person", 1),
+    "ciencia": ("lab", "scientist", 3), "fabula": ("forest", "turtle", 0), "motivacional": ("city", "athlete", 0),
+    "humor": ("office", "cat", 4), "biblia": ("ancient_city", "prophet", 0),
+}  # fmt: skip
+THEMES = tuple(
+    replace(t, place2d=_THEME_2D[t.key][0], actor2d=_THEME_2D[t.key][1], banner2d=_THEME_2D[t.key][2])
+    if t.key in _THEME_2D
+    else replace(t, modes=("3d",))
+    for t in THEMES
+)
 THEME_MAP = {t.key: t for t in THEMES}
 
 
@@ -410,3 +464,7 @@ def public_themes() -> list[dict]:
 
 def public_styles() -> list[dict]:
     return [{"key": k, "name": STYLE_NAMES.get(k, k)} for k in STYLES]
+
+
+def public_styles2d() -> list[dict]:
+    return [{"key": k, "name": STYLE2D_NAMES.get(k, k)} for k in STYLES2D]

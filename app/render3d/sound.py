@@ -472,7 +472,7 @@ def amb_traffic(rng, sec: float) -> np.ndarray:
     hum = band(noise(n, rng, "brown"), 35, 350) * 0.6
     out = hum.copy()
     for _ in range(max(1, int(sec / 3))):
-        m = _n(2.5)
+        m = min(_n(2.5), n)  # cena curta: o carro passa no tempo que tiver
         s = int(rng.uniform(0, max(1, n - m)))
         out[s : s + m] += band(noise(m, rng), 150, 1800) * np.sin(np.linspace(0, np.pi, m)) ** 2 * 0.6
     if rng.random() < 0.5 and n > _n(2):
@@ -556,7 +556,7 @@ def ambience(setting: str, time: str, weather: str, sec: float, rng) -> np.ndarr
         for _ in range(max(1, int(sec / 1.5))):
             d = s_drip(rng)
             s = int(rng.uniform(0, max(1, n - len(d))))
-            out[s : s + len(d)] += d
+            out[s : s + len(d)] += d[: max(0, n - s)]
     elif setting in ("room", "office", "lab"):
         add(amb_room(rng, sec))
         if setting == "lab":

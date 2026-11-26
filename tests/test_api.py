@@ -112,3 +112,98 @@ def test_settings_have_only_text_models():
 def test_index_uses_versioned_assets():
     html = client().get("/").text
     assert "/static/app.js?v=" in html and "{{v}}" not in html
+
+
+def test_index_has_logo_and_icons():
+    c = client()
+    html = c.get("/").text
+    assert "/static/logo.svg?v=" in html and "/static/favicon.svg?v=" in html and "apple-touch-icon" in html
+    for name in ("logo.svg", "favicon.svg", "favicon-32.png", "apple-touch-icon.png", "icon-192.png", "icon-512.png",
+                 "manifest.webmanifest"):  # fmt: skip
+        assert c.get(f"/static/{name}").status_code == 200, name
+
+
+def test_anim2d_jobs_and_themes():
+    c = login(client())
+    data = c.get("/api/themes").json()
+    assert {s["key"] for s in data["styles2d"]} == {"papel", "flat"}
+    modes = {t["key"]: t["modes"] for t in data["themes"]}
+    assert "2d" in modes["biblia"] and "2d" in modes["terror"] and modes["satisfatorio"] == ["3d"]
+    j = c.post("/api/jobs/anim2d", json={"prompt": "Daniel na cova dos leões", "theme": "biblia"}).json()
+    assert (
+        j["kind"] == "anim2d"
+        and j["params"]["style"] == "papel"
+        and j["title"].startswith("Histórias da Bíblia:")
+    )
+    assert j["params"]["narration"] is True and j["params"]["seconds_per_scene"] == 4.0
+    assert c.post("/api/jobs/anim2d", json={"prompt": "abc", "theme": "satisfatorio"}).status_code == 400
+    assert c.post("/api/jobs/anim2d", json={"prompt": "abc", "style": "pixar3d"}).status_code == 400
+    assert c.post("/api/jobs/anim2d", json={"prompt": "abc", "voice": "nao-existe"}).status_code == 400
+
+
+def test_youtube_modes_validation_and_preview():
+    c = login(client())
+    url = "https://youtu.be/dQw4w9WgXcQ"
+    r = c.post("/api/jobs/youtube", json={"url": url, "mode": "manual", "clips": ""})
+    assert r.status_code == 400 and "pelo menos um corte" in r.json()["detail"]
+    r = c.post("/api/jobs/youtube", json={"url": url, "mode": "manual", "clips": "2:00-1:00"})
+    assert r.status_code == 400 and "Linha 1" in r.json()["detail"]
+    r = c.post("/api/jobs/youtube", json={"url": url, "mode": "ai", "start": "5:00", "end": "4:00"})
+    assert r.status_code == 400 and "depois do início" in r.json()["detail"]
+    assert c.post("/api/jobs/youtube", json={"url": url, "mode": "outro"}).status_code == 422
+    j = c.post(
+        "/api/jobs/youtube",
+        json={"url": url, "mode": "parts", "start": "2:00", "end": "14:30", "part_seconds": 60},
+    ).json()
+    assert j["title"].startswith("Partes:") and j["params"]["part_label"] is True
+    j = c.post(
+        "/api/jobs/youtube", json={"url": url, "mode": "manual", "clips": "1:20-2:05 Melhor parte"}
+    ).json()
+    assert j["title"].startswith("Trechos:") and j["params"]["clips"] == "1:20-2:05 Melhor parte"
+    p = c.post(
+        "/api/youtube/preview", json={"mode": "manual", "clips": "1:20-2:05 Melhor\n10:00 a 10:45"}
+    ).json()
+    assert p["error"] == "" and [(x["start"], x["title"]) for x in p["clips"]] == [(80, "Melhor"), (600, "")]
+    p = c.post(
+        "/api/youtube/preview", json={"mode": "parts", "start": "2:00", "end": "14:30", "part_seconds": 60}
+    ).json()
+    assert p["error"] == "" and p["parts"] == 13
+    assert (
+        "depois do início"
+        in c.post("/api/youtube/preview", json={"mode": "ai", "start": "5:00", "end": "4:00"}).json()["error"]
+    )
+
+
+def test_post_options_follow_tiktok_rules():
+    from app import settings_store as st
+    from app.db import Video, init_db, session_scope
+
+    init_db()
+    c = login(client())
+    with session_scope() as s:
+        v = Video(kind="anim2d", title="t", caption="c", file_path="x/v.mp4")
+        s.add(v)
+        s.flush()
+        vid = v.id
+    st.set_many({"tiktok_access_token": "tok"})
+    try:
+        r = c.post(
+            f"/api/videos/{vid}/tiktok",
+            json={"mode": "direct", "privacy": "SELF_ONLY", "brand_content": True},
+        )
+        assert r.status_code == 400 and "Só eu" in r.json()["detail"]
+        assert c.post(f"/api/videos/{vid}/tiktok", json={"privacy": "TODO_MUNDO"}).status_code == 422
+        j = c.post(
+            f"/api/videos/{vid}/tiktok",
+            json={
+                "mode": "direct",
+                "privacy": "PUBLIC_TO_EVERYONE",
+                "brand_organic": True,
+                "disable_comment": True,
+            },
+        ).json()
+        assert j["kind"] == "tiktok_post" and j["params"]["video_id"] == vid
+        assert j["params"]["brand_organic"] is True and j["params"]["brand_content"] is False
+        assert j["params"]["disable_comment"] is True and j["params"]["privacy"] == "PUBLIC_TO_EVERYONE"
+    finally:
+        st.set_many({"tiktok_access_token": ""})

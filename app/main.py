@@ -21,8 +21,9 @@ from . import settings_store as st
 from .config import config
 from .db import Job, Video, get_db, init_db
 from .openrouter import OpenRouter, OpenRouterError, summarize_models
-from .pipelines.themes import STYLES, THEME_MAP, public_styles, public_themes
-from .pipelines.youtube_clips import is_youtube_url
+from .pipelines.themes import STYLES, STYLES2D, THEME_MAP, public_styles, public_styles2d, public_themes
+from .pipelines.youtube_clips import check_params as check_youtube
+from .pipelines.youtube_clips import is_youtube_url, parse_ranges, parse_time, split_parts
 from .tts import DEFAULT_VOICE, VOICES, public_voices
 
 STATIC = Path(__file__).parent / "static"
@@ -137,7 +138,12 @@ def put_settings(data: SettingsIn, _: str = User) -> dict:
 
 @app.get("/api/themes")
 def get_themes(_: str = User) -> dict:
-    return {"themes": public_themes(), "styles": public_styles(), "voices": public_voices()}
+    return {
+        "themes": public_themes(),
+        "styles": public_styles(),
+        "styles2d": public_styles2d(),
+        "voices": public_voices(),
+    }
 
 
 @app.post("/api/openrouter/test")
@@ -181,6 +187,13 @@ def job_dict(j: Job, with_log: bool = False) -> dict:
 
 class YoutubeIn(BaseModel):
     url: str
+    # modo: a IA escolhe | eu digo os trechos | dividir em partes
+    mode: str = Field("ai", pattern="^(ai|manual|parts)$")
+    start: str = ""  # trecho do vídeo (ex.: 12:30); vazio = desde o começo
+    end: str = ""  # vazio = até o fim
+    clips: str = ""  # modo manual: um corte por linha ("1:20-2:05 Título")
+    part_seconds: int = Field(60, ge=10, le=600)
+    part_label: bool = True
     max_clips: int = Field(5, ge=1, le=20)
     min_seconds: int = Field(20, ge=5, le=180)
     max_seconds: int = Field(60, ge=10, le=600)
@@ -209,6 +222,30 @@ class Prompt3DIn(BaseModel):
     privacy: str = ""
 
 
+class Anim2DIn(BaseModel):
+    prompt: str = Field(min_length=3)
+    scenes: int = Field(6, ge=1, le=15)
+    seconds_per_scene: float = Field(4.0, ge=2, le=10)
+    style: str = "papel"
+    theme: str = ""
+    narration: bool = True
+    voice: str = DEFAULT_VOICE
+    sfx: bool = True
+    captions: bool = True
+    music_path: str = ""
+    auto_post: bool = False
+    post_mode: str = ""
+    privacy: str = ""
+
+
+def _music(params: dict) -> dict:
+    """Só aceita música enviada pelo painel (arquivo dentro de DATA_DIR/uploads)."""
+    if params.get("music_path"):
+        p = config.data_dir / "uploads" / Path(params["music_path"]).name
+        params["music_path"] = str(p) if p.exists() else ""
+    return params
+
+
 def _enqueue(db: Session, kind: str, title: str, params: dict) -> dict:
     job = Job(kind=kind, title=title[:300], params=params)
     db.add(job)
@@ -221,9 +258,36 @@ def _enqueue(db: Session, kind: str, title: str, params: dict) -> dict:
 def create_youtube(data: YoutubeIn, db: Session = Depends(get_db), _: str = User) -> dict:
     if not is_youtube_url(data.url):
         raise HTTPException(400, "Informe um link válido do YouTube")
-    if data.min_seconds >= data.max_seconds:
+    if data.mode == "ai" and data.min_seconds >= data.max_seconds:
         raise HTTPException(400, "Duração mínima deve ser menor que a máxima")
-    return _enqueue(db, "youtube", f"Cortes: {data.url}", data.model_dump())
+    err = check_youtube(data.model_dump())
+    if err:
+        raise HTTPException(400, err)
+    label = {"ai": "Cortes", "manual": "Trechos", "parts": "Partes"}[data.mode]
+    return _enqueue(db, "youtube", f"{label}: {data.url}", data.model_dump())
+
+
+class YoutubePreviewIn(BaseModel):
+    mode: str = "ai"
+    start: str = ""
+    end: str = ""
+    clips: str = ""
+    part_seconds: int = 60
+
+
+@app.post("/api/youtube/preview")
+def youtube_preview(data: YoutubePreviewIn, _: str = User) -> dict:
+    """Lê os tempos com a mesma regra do worker, para o painel mostrar o que vai ser cortado."""
+    p = data.model_dump()
+    err = check_youtube(p)
+    if err:
+        return {"error": err, "clips": [], "parts": None}
+    clips = parse_ranges(p["clips"]) if data.mode == "manual" else []
+    start, end = parse_time(data.start), parse_time(data.end)
+    parts = None
+    if data.mode == "parts" and end is not None:  # sem o fim do trecho, depende da duração do vídeo
+        parts = len(split_parts(start or 0.0, end, max(10, data.part_seconds), []))
+    return {"error": "", "clips": clips, "start": start, "end": end, "parts": parts}
 
 
 @app.post("/api/jobs/prompt3d")
@@ -234,12 +298,22 @@ def create_prompt3d(data: Prompt3DIn, db: Session = Depends(get_db), _: str = Us
         raise HTTPException(400, "Estilo desconhecido")
     if data.voice not in VOICES:
         raise HTTPException(400, "Voz desconhecida")
-    params = data.model_dump()
-    if params["music_path"]:
-        p = config.data_dir / "uploads" / Path(params["music_path"]).name
-        params["music_path"] = str(p) if p.exists() else ""
+    params = _music(data.model_dump())
     label = THEME_MAP[data.theme].name if data.theme else "3D"
     return _enqueue(db, "prompt3d", f"{label}: {data.prompt[:120]}", params)
+
+
+@app.post("/api/jobs/anim2d")
+def create_anim2d(data: Anim2DIn, db: Session = Depends(get_db), _: str = User) -> dict:
+    if data.theme and (data.theme not in THEME_MAP or "2d" not in THEME_MAP[data.theme].modes):
+        raise HTTPException(400, "Tema desconhecido")
+    if data.style not in STYLES2D:
+        raise HTTPException(400, "Estilo desconhecido")
+    if data.voice not in VOICES:
+        raise HTTPException(400, "Voz desconhecida")
+    params = _music(data.model_dump())
+    label = THEME_MAP[data.theme].name if data.theme else "Animação 2D"
+    return _enqueue(db, "anim2d", f"{label}: {data.prompt[:120]}", params)
 
 
 @app.post("/api/uploads/music")
@@ -370,11 +444,15 @@ def delete_video(video_id: int, db: Session = Depends(get_db), _: str = User) ->
 
 class PostIn(BaseModel):
     mode: str = Field("", pattern="^(|direct|inbox)$")
-    privacy: str = ""
-    title: str = ""
+    privacy: str = Field(
+        "", pattern="^(|SELF_ONLY|MUTUAL_FOLLOW_FRIENDS|FOLLOWER_OF_CREATOR|PUBLIC_TO_EVERYONE)$"
+    )
+    title: str = Field("", max_length=4000)
     disable_comment: bool = False
     disable_duet: bool = False
     disable_stitch: bool = False
+    brand_organic: bool = False  # "Sua marca": conteúdo promocional do próprio negócio
+    brand_content: bool = False  # "Conteúdo de marca": parceria paga com terceiros
 
 
 @app.post("/api/videos/{video_id}/tiktok")
@@ -388,6 +466,8 @@ def post_video(video_id: int, data: PostIn, db: Session = Depends(get_db), _: st
     params["video_id"] = video_id
     params["mode"] = params["mode"] or st.get("tiktok_default_mode", db)
     params["privacy"] = params["privacy"] or st.get("tiktok_default_privacy", db)
+    if params["mode"] == "direct" and params["brand_content"] and params["privacy"] == "SELF_ONLY":
+        raise HTTPException(400, "Conteúdo de marca (parceria paga) não pode ser postado como 'Só eu'")
     v.tiktok_status, v.tiktok_error = "queued", ""
     db.commit()
     return _enqueue(db, "tiktok_post", f"Postar vídeo #{video_id} no TikTok", params)

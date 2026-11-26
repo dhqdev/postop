@@ -103,22 +103,37 @@ class OpenRouter:
             raise OpenRouterError(f"Resposta inesperada do modelo {model}") from exc
         return ChatResult(content=content, model=body.get("model", model), cost=_cost(body))
 
-    def chat_json(self, models: list[str], system: str, user: str) -> tuple[dict | list, float, str]:
-        """Tenta cada modelo até conseguir um JSON válido."""
+    def chat_json(
+        self, models: list[str], system: str, user: str, max_tokens: int = 4000
+    ) -> tuple[dict | list, float, str]:
+        """Tenta cada modelo até conseguir um JSON válido.
+
+        Para economizar tokens: JSON quebrado ganha uma segunda tentativa no mesmo modelo; erro de API
+        (sem crédito, limite, fora do ar) passa direto para o modelo reserva.
+        """
         errors = []
         total = 0.0
+        seen: set[str] = set()
         for model in [m for m in models if m]:
+            if model in seen:
+                continue
+            seen.add(model)
             for _attempt in range(2):
                 try:
                     r = self.chat(
                         model,
                         [{"role": "system", "content": system}, {"role": "user", "content": user}],
                         json_mode=True,
+                        max_tokens=max_tokens,
                     )
-                    total += r.cost
-                    return parse_json(r.content), total, r.model
-                except (OpenRouterError, json.JSONDecodeError, ValueError) as exc:
+                except OpenRouterError as exc:
                     errors.append(f"{model}: {exc}")
+                    break
+                total += r.cost
+                try:
+                    return parse_json(r.content), total, r.model
+                except (json.JSONDecodeError, ValueError) as exc:
+                    errors.append(f"{model}: JSON inválido ({exc})")
         raise OpenRouterError("Nenhum modelo de texto respondeu: " + " | ".join(errors)[-1500:])
 
     # -------------------------------------------------------------- utilitários
